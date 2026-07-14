@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String       @id @default(cuid())
+  clerkId     String       @unique
+  email       String?
+  name        String?
+  projects    Project[]
+  generations Generation[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Project {
+  id           String       @id @default(cuid())
+  userId       String?
+  title        String
+  idea         String       @db.Text
+  status       String       @default("completed")
+  platforms    String[]     @default([])
+  videoUrl     String       @db.Text
+  audioUrl     String?      @db.Text
+  thumbnailUrl String?      @db.Text
+  scriptJson    Json?
+  timelineJson  Json?
+  subtitlesJson Json?
+  settingsJson  Json?
+  user         User?        @relation(fields: [userId], references: [id])
+  generations  Generation[]
+  videos       Video[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Generation {
+  id             String   @id @default(cuid())
+  userId         String?
+  projectId      String?
+  idea           String   @db.Text
+  prompt         String   @db.Text
+  status         String   @default("completed")
+  videoProvider  String   @default("mock")
+  voiceProvider  String   @default("mock")
+  renderProvider String   @default("mock")
+  videoUrl       String?  @db.Text
+  audioUrl       String?  @db.Text
+  finalVideoUrl  String?  @db.Text
+  errorMessage   String?  @db.Text
+  scriptJson     Json?
+  timelineJson   Json?
+  subtitlesJson  Json?
+  settingsJson   Json?
+  user           User?    @relation(fields: [userId], references: [id])
+  project        Project? @relation(fields: [projectId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Video {
+  id           String   @id @default(cuid())
+  projectId    String?
+  title        String
+  videoUrl     String   @db.Text
+  audioUrl     String?  @db.Text
+  thumbnailUrl String?  @db.Text
+  duration     Int?
+  format       String   @default("mp4")
+  resolution   String   @default("720x1280")
+  status       String   @default("completed")
+  project      Project? @relation(fields: [projectId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
