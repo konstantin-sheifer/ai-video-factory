@@ -53,3 +53,5 @@ next-env.d.ts
 # Local temp files
 /tmp/
 *.tmp
+# Generated subtitle files
+/public/render-subtitles/
