@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Scene = {
@@ -157,6 +157,20 @@ const voiceStyleOptions: { id: VoiceStyle; label: string }[] = [
 ];
 
 export default function StudioPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex h-screen items-center justify-center bg-[#050816] text-white">
+          <div className="text-sm font-bold text-white/60">Loading Studio...</div>
+        </main>
+      }
+    >
+      <StudioPageContent />
+    </Suspense>
+  );
+}
+
+function StudioPageContent() {
   const searchParams = useSearchParams();
   const urlProjectId = searchParams.get("projectId");
   const shouldGenerate = searchParams.get("generate") === "1";
