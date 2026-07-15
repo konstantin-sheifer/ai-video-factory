@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎬 AI Video Factory
 
-## Getting Started
+AI Video Factory is an AI-powered SaaS platform that transforms a simple idea into ready-to-publish short-form videos for YouTube Shorts, TikTok, Instagram Reels, and other social platforms.
 
-First, run the development server:
+## 🚀 Overview
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+The platform combines multiple AI technologies into one workflow:
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- AI script generation
+- AI voice generation
+- AI video generation
+- Automatic subtitles
+- Background music
+- Project management
+- Multi-platform publishing
+- Content scheduling
+- AI Creative Producer pipeline
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ✨ Current Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- ✅ AI-generated scripts
+- ✅ Runway video generation
+- ✅ ElevenLabs voiceover
+- ✅ Automatic subtitles
+- ✅ Background music
+- ✅ Studio editor
+- ✅ Project management
+- ✅ Video export
 
-## Learn More
+## 🛠 Tech Stack
 
-To learn more about Next.js, take a look at the following resources:
+- Next.js
+- TypeScript
+- Tailwind CSS
+- OpenAI API
+- ElevenLabs API
+- Runway API
+- Clerk Authentication
+- Prisma ORM
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🎯 Project Goal
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Build an all-in-one AI Content Studio where creators can generate, manage, schedule, and publish professional short-form videos with minimal manual work.
 
-## Deploy on Vercel
+## 📌 Status
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Currently under active development.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+New features and improvements are added continuously.
