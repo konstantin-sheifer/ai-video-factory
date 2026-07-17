@@ -187,53 +187,15 @@ async function saveProjectWithPrisma(
 
       return normalizePrismaProject(project);
     }
-  }
 
-  if (cleanVideoUrl) {
-    const existingByVideoUrl = await prisma.project.findFirst({
-      where: {
-        videoUrl: cleanVideoUrl,
-      },
-      orderBy: {
-        createdAt: "desc",
+    const project = await prisma.project.create({
+      data: {
+        id: input.id,
+        ...data,
       },
     });
 
-    if (existingByVideoUrl) {
-      const project = await prisma.project.update({
-        where: {
-          id: existingByVideoUrl.id,
-        },
-        data,
-      });
-
-      return normalizePrismaProject(project);
-    }
-  }
-
-  if (cleanIdea) {
-    const existingByIdea = await prisma.project.findFirst({
-      where: {
-        idea: cleanIdea,
-        status: {
-          in: ["draft", "rendering", "completed"],
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    if (existingByIdea) {
-      const project = await prisma.project.update({
-        where: {
-          id: existingByIdea.id,
-        },
-        data,
-      });
-
-      return normalizePrismaProject(project);
-    }
+    return normalizePrismaProject(project);
   }
 
   const project = await prisma.project.create({
@@ -250,24 +212,7 @@ async function getProjectsWithPrisma(): Promise<StoredProject[]> {
     },
   });
 
-  const seen = new Set<string>();
-
-  const uniqueProjects = projects.filter((project) => {
-    const key =
-      project.videoUrl?.trim() ||
-      project.thumbnailUrl?.trim() ||
-      project.idea?.trim() ||
-      project.id;
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-
-  return uniqueProjects.map(normalizePrismaProject);
+  return projects.map(normalizePrismaProject);
 }
 
 async function getProjectByIdWithPrisma(

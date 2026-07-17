@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Project = {
   id: string;
@@ -19,22 +19,6 @@ type Project = {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const visibleProjects = useMemo(() => {
-    const seen = new Set<string>();
-
-    return projects.filter((project) => {
-      const ideaKey = project.idea.trim().toLowerCase();
-      const videoKey = project.videoUrl.trim().toLowerCase();
-      const thumbnailKey = project.thumbnailUrl?.trim().toLowerCase() || "";
-      const key = ideaKey || videoKey || thumbnailKey || project.id;
-
-      if (seen.has(key)) return false;
-
-      seen.add(key);
-      return true;
-    });
-  }, [projects]);
 
   useEffect(() => {
     loadProjects();
@@ -93,7 +77,7 @@ export default function ProjectsPage() {
           <div className="flex flex-1 items-center justify-center text-sm font-bold text-white/50">
             Loading projects...
           </div>
-        ) : visibleProjects.length === 0 ? (
+        ) : projects.length === 0 ? (
           <div className="flex flex-1 items-center justify-center text-center">
             <div>
               <h2 className="text-3xl font-black">No projects yet</h2>
@@ -104,7 +88,7 @@ export default function ProjectsPage() {
           </div>
         ) : (
           <div className="grid flex-1 gap-5 pb-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {visibleProjects.map((project) => (
+            {projects.map((project) => (
               <article
                 key={project.id}
                 className="flex min-h-[420px] flex-col overflow-hidden rounded-[30px] border border-white/10 bg-white/[0.04] shadow-[0_0_60px_rgba(0,0,0,0.25)] backdrop-blur-xl"
