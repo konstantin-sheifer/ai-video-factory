@@ -9,6 +9,10 @@ import { createCameraPlan } from "@/lib/ai-brain/visual-development/camera-plann
 import { buildProviderPrompt } from "@/lib/ai-brain/visual-development/provider-prompt-builder";
 import { buildRunwayPromptPackage } from "@/lib/ai-brain/providers/runway-adapter";
 import { reviewProductionPackage } from "@/lib/ai-brain/quality-control/quality-controller";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type ScriptRequest = { idea?: string; duration?: number };
 
@@ -25,6 +29,34 @@ type CreativeProducerResult = Awaited<
 >;
 
 export async function POST(request: Request) {
+  try {
+    await requireAppUser();
+  } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
+    console.error("Script authentication failure.", {
+      category: "unexpected_internal_failure",
+    });
+
+    return NextResponse.json(
+      {
+        provider: "ai-brain-error",
+        mock: true,
+        canGenerate: false,
+        generationBlocked: true,
+        generationBlockReason:
+          "Script generation failed. Please try again.",
+        error: "Failed to generate script.",
+      },
+      { status: 500 }
+    );
+  }
+
   let body: ScriptRequest;
 
   try {

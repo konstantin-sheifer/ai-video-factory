@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { createVideo } from "@/lib/providers/video";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type VideoBrief = {
   idea?: string;
@@ -15,6 +19,8 @@ const MAX_RUNWAY_PROMPT_LENGTH = 2500;
 
 export async function POST(request: Request) {
   try {
+    await requireAppUser();
+
     const body = (await request.json()) as VideoRequest;
     const prompt = getFinalPrompt(body);
 
@@ -33,6 +39,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Video route error:", error);
 
     return NextResponse.json(

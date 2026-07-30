@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 const fallbackIdeas = [
   "A penguin accidentally becomes the captain of a spaceship full of chickens.",
@@ -56,6 +60,8 @@ const locations = [
 
 export async function POST() {
   try {
+    await requireAppUser();
+
     const category = pickRandom(categories);
     const genre = pickRandom(genres);
     const location = pickRandom(locations);
@@ -121,6 +127,13 @@ Rules:
       },
     });
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error(error);
 
     return NextResponse.json({

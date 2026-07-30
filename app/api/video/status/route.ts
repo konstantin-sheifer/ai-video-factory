@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type VideoStatusRequest = {
   taskId?: string;
@@ -12,6 +16,26 @@ type RunwayStatusResponse = {
 };
 
 export async function POST(request: Request) {
+  try {
+    await requireAppUser();
+  } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
+    console.error("Video status authentication failure.", {
+      category: "unexpected_internal_failure",
+    });
+
+    return NextResponse.json(
+      { error: "Failed to check video status." },
+      { status: 500 }
+    );
+  }
+
   let body: VideoStatusRequest;
 
   try {

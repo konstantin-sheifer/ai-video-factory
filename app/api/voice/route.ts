@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { createVoice } from "@/lib/providers/voice";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type VoiceRequest = {
   text?: string;
@@ -8,6 +12,8 @@ type VoiceRequest = {
 
 export async function POST(request: Request) {
   try {
+    await requireAppUser();
+
     const body = (await request.json()) as VoiceRequest;
     const text = body.text?.trim();
 
@@ -22,6 +28,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Voice route error:", error);
 
     return NextResponse.json(

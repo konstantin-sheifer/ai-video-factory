@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -24,6 +28,8 @@ const ResponseSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    await requireAppUser();
+
     const body = await request.json();
     const parsed = RequestSchema.safeParse(body);
 
@@ -94,6 +100,13 @@ Create 10 highly viral short-form video concepts for this channel.
 
     return NextResponse.json(parsedIdeas.data);
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error(error);
 
     return NextResponse.json(

@@ -3,6 +3,10 @@ import {
   fetchSafeMedia,
   SafeMediaError,
 } from "@/lib/security/media-policy";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type TranscribeRequest = {
   audioUrl?: string;
@@ -27,6 +31,8 @@ const DEFAULT_WORDS_PER_SUBTITLE = 4;
 
 export async function POST(request: Request) {
   try {
+    await requireAppUser();
+
     const body = (await request.json()) as TranscribeRequest;
     const audioUrl = String(body.audioUrl || "").trim();
 
@@ -63,10 +69,13 @@ export async function POST(request: Request) {
     const data = await response.json();
 
     if (!response.ok) {
+      console.error("Transcription provider failure.", {
+        category: "upstream_rejected_request",
+        statusCode: response.status,
+      });
+
       return NextResponse.json(
-        {
-          error: data.error?.message || "Whisper transcription failed.",
-        },
+        { error: "Whisper transcription failed." },
         { status: 500 }
       );
     }
@@ -88,6 +97,13 @@ export async function POST(request: Request) {
       text: data.text || "",
     });
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     if (error instanceof SafeMediaError) {
       return NextResponse.json(
         { error: error.message },
