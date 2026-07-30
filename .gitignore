@@ -47,6 +47,10 @@ next-env.d.ts
 # AI Video Factory generated renders
 /public/renders/
 
+# Generated videos
+/public/generated-videos/
+/public/final-videos/
+
 # Local uploads
 /public/uploads/
 
