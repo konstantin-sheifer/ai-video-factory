@@ -1,5 +1,8 @@
-import { readFile } from "fs/promises";
+import { readFile, realpath, stat } from "fs/promises";
 import path from "path";
+import { fetchSafeMedia } from "@/lib/security/media-policy";
+
+const FALLBACK_FILE_NAME = "ai-video-factory-video.mp4";
 
 export type DownloadProviderInput = {
   videoUrl: string;
@@ -13,6 +16,16 @@ export type DownloadProviderResult = {
   fileName: string;
   blob: Blob;
 };
+
+export class DownloadProviderError extends Error {
+  readonly status: 400 | 404;
+
+  constructor(message: string, status: 400 | 404) {
+    super(message);
+    this.name = "DownloadProviderError";
+    this.status = status;
+  }
+}
 
 export async function downloadVideo(
   input: DownloadProviderInput
@@ -55,44 +68,131 @@ async function downloadFromSource(
     provider,
     mock,
     status: "SUCCEEDED",
-    fileName: input.fileName || "ai-video-factory-video.mp4",
+    fileName: sanitizeFileName(input.fileName),
     blob,
   };
 }
 
 function isLocalPublicVideo(videoUrl: string) {
   return (
-    videoUrl.startsWith("/generated-videos/") ||
-    videoUrl.startsWith("/final-videos/")
+    videoUrl.startsWith("/") ||
+    videoUrl.startsWith("\\") ||
+    videoUrl.includes("\\") ||
+    path.win32.isAbsolute(videoUrl)
   );
 }
 
 async function readLocalPublicVideo(videoUrl: string) {
-  const cleanPath = videoUrl.replace(/^\/+/, "");
+  const decodedPath = decodeLocalPath(videoUrl);
+  const allowedDirectories = [
+    {
+      urlPrefix: "/generated-videos/",
+      basePath: path.resolve(process.cwd(), "public", "generated-videos"),
+    },
+    {
+      urlPrefix: "/final-videos/",
+      basePath: path.resolve(process.cwd(), "public", "final-videos"),
+    },
+  ];
 
-  if (
-    !cleanPath.startsWith("generated-videos/") &&
-    !cleanPath.startsWith("final-videos/")
-  ) {
-    throw new Error("Invalid local video path.");
+  const allowedDirectory = allowedDirectories.find(({ urlPrefix }) =>
+    decodedPath.startsWith(urlPrefix)
+  );
+
+  if (!allowedDirectory) {
+    throw new DownloadProviderError("Invalid local video path.", 400);
   }
 
-  const filePath = path.join(process.cwd(), "public", cleanPath);
-  const buffer = await readFile(filePath);
+  const relativePath = decodedPath.slice(allowedDirectory.urlPrefix.length);
 
-  return new Blob([buffer], {
-    type: "video/mp4",
-  });
+  if (!relativePath || path.isAbsolute(relativePath)) {
+    throw new DownloadProviderError("Invalid local video path.", 400);
+  }
+
+  const resolvedPath = path.resolve(allowedDirectory.basePath, relativePath);
+
+  if (!isStrictlyContained(allowedDirectory.basePath, resolvedPath)) {
+    throw new DownloadProviderError("Invalid local video path.", 400);
+  }
+
+  try {
+    const [realBasePath, realFilePath, fileStats] = await Promise.all([
+      realpath(allowedDirectory.basePath),
+      realpath(resolvedPath),
+      stat(resolvedPath),
+    ]);
+
+    if (
+      !isStrictlyContained(realBasePath, realFilePath) ||
+      !fileStats.isFile()
+    ) {
+      throw new DownloadProviderError("Invalid local video path.", 400);
+    }
+
+    const buffer = await readFile(realFilePath);
+
+    return new Blob([buffer], {
+      type: "video/mp4",
+    });
+  } catch (error) {
+    if (error instanceof DownloadProviderError) {
+      throw error;
+    }
+
+    throw new DownloadProviderError("Video file not found.", 404);
+  }
+}
+
+function decodeLocalPath(videoUrl: string) {
+  if (videoUrl.includes("\0") || videoUrl.includes("\\")) {
+    throw new DownloadProviderError("Invalid local video path.", 400);
+  }
+
+  try {
+    const decodedPath = decodeURIComponent(videoUrl.split(/[?#]/, 1)[0]);
+
+    if (decodedPath.includes("\0") || decodedPath.includes("\\")) {
+      throw new DownloadProviderError("Invalid local video path.", 400);
+    }
+
+    return decodedPath;
+  } catch (error) {
+    if (error instanceof DownloadProviderError) {
+      throw error;
+    }
+
+    throw new DownloadProviderError("Invalid local video path.", 400);
+  }
+}
+
+function isStrictlyContained(basePath: string, targetPath: string) {
+  const relativePath = path.relative(basePath, targetPath);
+
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+function sanitizeFileName(fileName?: string) {
+  const candidate = (fileName || FALLBACK_FILE_NAME)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\\/g, "/");
+  const baseName = path.posix.basename(candidate);
+  const safeName = baseName
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "")
+    .slice(0, 120);
+
+  return safeName || FALLBACK_FILE_NAME;
 }
 
 async function fetchRemoteVideo(videoUrl: string) {
-  const response = await fetch(videoUrl, {
-    cache: "no-store",
+  const { buffer, contentType } = await fetchSafeMedia(videoUrl);
+
+  return new Blob([Uint8Array.from(buffer)], {
+    type: contentType || "video/mp4",
   });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch video file. Status: ${response.status}`);
-  }
-
-  return response.blob();
 }

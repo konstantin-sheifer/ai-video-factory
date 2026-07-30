@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server";
-import { getProjects, saveProject } from "@/lib/storage/projects";
+import {
+  getProjectsByUserId,
+  saveProject,
+  updateProjectForUser,
+  type StoredProject,
+} from "@/lib/storage/projects";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type ProjectStatus = "draft" | "rendering" | "completed" | "published";
 
@@ -38,11 +47,10 @@ function getProjectStorageProvider() {
 
 export async function POST(request: Request) {
   try {
+    const { internalUserId } = await requireAppUser();
     const body = (await request.json()) as ProjectRequest;
 
-    const project = await saveProject({
-      id: body.id,
-      userId: body.userId,
+    const projectInput = {
       title: body.title,
       idea: body.idea,
       videoUrl: body.videoUrl,
@@ -54,17 +62,46 @@ export async function POST(request: Request) {
       timelineJson: body.timelineJson,
       subtitlesJson: body.subtitlesJson,
       settingsJson: body.settingsJson,
+    };
+
+    if (body.id) {
+      const result = await updateProjectForUser(
+        body.id,
+        internalUserId,
+        projectInput
+      );
+
+      if (result.status === "not_found") {
+        return NextResponse.json(
+          { error: "Project not found." },
+          { status: 404 }
+        );
+      }
+
+      if (result.status === "forbidden") {
+        return NextResponse.json(
+          { error: "You do not have permission to modify this project." },
+          { status: 403 }
+        );
+      }
+
+      return createSavedProjectResponse(result.project);
+    }
+
+    const project = await saveProject({
+      ...projectInput,
+      userId: internalUserId,
     });
 
-    const provider = getProjectStorageProvider();
-
-    return NextResponse.json({
-      provider: provider === "prisma" ? "prisma-storage" : "mock-storage",
-      mock: provider !== "prisma",
-      status: "SAVED",
-      project,
-    });
+    return createSavedProjectResponse(project);
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Project save error:", error);
 
     return NextResponse.json(
@@ -76,7 +113,8 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
-    const projects = await getProjects();
+    const { internalUserId } = await requireAppUser();
+    const projects = await getProjectsByUserId(internalUserId);
     const provider = getProjectStorageProvider();
 
     const projectList: ProjectListItem[] = projects.map((project) => ({
@@ -99,6 +137,13 @@ export async function GET() {
       projects: projectList,
     });
   } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Projects load error:", error);
 
     return NextResponse.json(
@@ -106,4 +151,15 @@ export async function GET() {
       { status: 500 }
     );
   }
+}
+
+function createSavedProjectResponse(project: StoredProject) {
+  const provider = getProjectStorageProvider();
+
+  return NextResponse.json({
+    provider: provider === "prisma" ? "prisma-storage" : "mock-storage",
+    mock: provider !== "prisma",
+    status: "SAVED",
+    project,
+  });
 }

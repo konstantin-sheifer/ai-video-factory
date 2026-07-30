@@ -4,32 +4,51 @@ type VideoStatusRequest = {
   taskId?: string;
 };
 
+type RunwayStatusResponse = {
+  id?: string;
+  status?: string;
+  videoUrl?: string;
+  output?: string[] | { videoUrl?: string };
+};
+
 export async function POST(request: Request) {
+  let body: VideoStatusRequest;
+
   try {
-    const body = (await request.json()) as VideoStatusRequest;
-    const taskId = body.taskId?.trim();
+    body = (await request.json()) as VideoStatusRequest;
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid request body." },
+      { status: 400 }
+    );
+  }
 
-    if (!taskId) {
-      return NextResponse.json(
-        {
-          error: "Task ID is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
+  const taskId = typeof body.taskId === "string" ? body.taskId.trim() : "";
 
-    if (!process.env.RUNWAY_API_KEY || taskId === "mock-task-id") {
-      return NextResponse.json({
-        mock: true,
-        status: "SUCCEEDED",
-        videoUrl:
-          "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-      });
-    }
+  if (!taskId) {
+    return NextResponse.json(
+      {
+        error: "Task ID is required.",
+      },
+      {
+        status: 400,
+      }
+    );
+  }
 
-    const response = await fetch(
+  if (!process.env.RUNWAY_API_KEY || taskId === "mock-task-id") {
+    return NextResponse.json({
+      mock: true,
+      status: "SUCCEEDED",
+      videoUrl:
+        "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+    });
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(
       `https://api.dev.runwayml.com/v1/tasks/${taskId}`,
       {
         method: "GET",
@@ -40,25 +59,33 @@ export async function POST(request: Request) {
         },
       }
     );
+  } catch {
+    console.error("Video status provider failure.", {
+      category: "provider_unavailable",
+    });
 
-    const data = await response.json();
+    return NextResponse.json(
+      { error: "Video provider is temporarily unavailable." },
+      { status: 503 }
+    );
+  }
 
-    if (!response.ok) {
-      console.error(data);
+  if (!response.ok) {
+    console.error("Video status provider failure.", {
+      category: "upstream_rejected_request",
+      statusCode: response.status,
+    });
 
-      return NextResponse.json(
-        {
-          error: data,
-        },
-        {
-          status: 500,
-        }
-      );
-    }
+    return NextResponse.json(
+      { error: "Video provider request failed." },
+      { status: 502 }
+    );
+  }
 
+  try {
+    const data = (await response.json()) as RunwayStatusResponse;
     const videoUrl =
-      data.output?.[0] ||
-      data.output?.videoUrl ||
+      (Array.isArray(data.output) ? data.output[0] : data.output?.videoUrl) ||
       data.videoUrl ||
       "";
 
@@ -68,15 +95,17 @@ export async function POST(request: Request) {
       taskId: data.id || taskId,
       videoUrl,
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error("Video status route failure.", {
+      category: "invalid_provider_response",
+    });
 
     return NextResponse.json(
       {
-        error: "Failed to check video status.",
+        error: "Video provider returned an invalid response.",
       },
       {
-        status: 500,
+        status: 502,
       }
     );
   }

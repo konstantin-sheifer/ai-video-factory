@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type ProjectStatus = "draft" | "rendering" | "completed" | "published";
@@ -36,6 +37,11 @@ export type SaveProjectInput = {
   settingsJson?: unknown;
 };
 
+export type OwnedProjectUpdateResult =
+  | { status: "updated"; project: StoredProject }
+  | { status: "not_found" }
+  | { status: "forbidden" };
+
 const mockProjectStore = new Map<string, StoredProject>();
 
 function getStorageProvider() {
@@ -66,6 +72,28 @@ export async function getProjects(): Promise<StoredProject[]> {
   });
 }
 
+/** Lists only projects owned by the supplied internal user ID. */
+export async function getProjectsByUserId(
+  userId: string
+): Promise<StoredProject[]> {
+  const provider = getStorageProvider();
+
+  if (provider === "prisma") {
+    const projects = await prisma.project.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return projects.map(normalizePrismaProject);
+  }
+
+  return Array.from(mockProjectStore.values())
+    .filter((project) => project.userId === userId)
+    .sort((a, b) => {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+}
+
 export async function getProjectById(
   id: string
 ): Promise<StoredProject | null> {
@@ -76,6 +104,85 @@ export async function getProjectById(
   }
 
   return mockProjectStore.get(id) || null;
+}
+
+/** Finds a project only when both its ID and owner match. */
+export async function getProjectByIdForUser(
+  id: string,
+  userId: string
+): Promise<StoredProject | null> {
+  const provider = getStorageProvider();
+
+  if (provider === "prisma") {
+    const project = await prisma.project.findFirst({
+      where: { id, userId },
+    });
+
+    return project ? normalizePrismaProject(project) : null;
+  }
+
+  const project = mockProjectStore.get(id);
+  return project?.userId === userId ? project : null;
+}
+
+/** Atomically updates an owned project and reports missing versus forbidden. */
+export async function updateProjectForUser(
+  id: string,
+  userId: string,
+  input: Omit<SaveProjectInput, "id" | "userId">
+): Promise<OwnedProjectUpdateResult> {
+  const provider = getStorageProvider();
+
+  if (provider === "prisma") {
+    return prisma.$transaction(async (transaction) => {
+      const result = await transaction.project.updateMany({
+        where: { id, userId },
+        data: buildPrismaProjectData(input),
+      });
+
+      if (result.count === 1) {
+        const project = await transaction.project.findUnique({
+          where: { id },
+        });
+
+        if (!project) {
+          throw new Error("Updated project could not be loaded.");
+        }
+
+        return {
+          status: "updated",
+          project: normalizePrismaProject(project),
+        };
+      }
+
+      const existingProject = await transaction.project.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+
+      return existingProject
+        ? { status: "forbidden" }
+        : { status: "not_found" };
+    });
+  }
+
+  const existingProject = mockProjectStore.get(id);
+
+  if (!existingProject) {
+    return { status: "not_found" };
+  }
+
+  if (existingProject.userId !== userId) {
+    return { status: "forbidden" };
+  }
+
+  const project = await saveProjectWithMock({
+    ...input,
+    id,
+    userId,
+  });
+
+  return { status: "updated", project };
 }
 
 export async function updateProjectStatus(
@@ -146,29 +253,11 @@ async function saveProjectWithMock(
 async function saveProjectWithPrisma(
   input: SaveProjectInput
 ): Promise<StoredProject> {
-  const cleanVideoUrl = input.videoUrl?.trim() || "";
-  const cleanIdea = input.idea?.trim() || "";
-
-  const data = {
-    title: input.title || "Untitled AI Video",
-    idea: cleanIdea,
-    videoUrl: cleanVideoUrl,
-    audioUrl: input.audioUrl || "",
-    thumbnailUrl: input.thumbnailUrl || cleanVideoUrl || "",
-    status: input.status || "completed",
-    platforms: input.platforms || [],
+  const data = buildPrismaProjectData(input);
+  const createData: Prisma.ProjectUncheckedCreateInput = {
+    ...data,
     ...(input.userId ? { userId: input.userId } : {}),
-    ...(input.scriptJson !== undefined ? { scriptJson: input.scriptJson } : {}),
-    ...(input.timelineJson !== undefined
-      ? { timelineJson: input.timelineJson }
-      : {}),
-    ...(input.subtitlesJson !== undefined
-      ? { subtitlesJson: input.subtitlesJson }
-      : {}),
-    ...(input.settingsJson !== undefined
-      ? { settingsJson: input.settingsJson }
-      : {}),
-  } as any;
+  };
 
   if (input.id) {
     const existingById = await prisma.project.findUnique({
@@ -182,7 +271,7 @@ async function saveProjectWithPrisma(
         where: {
           id: input.id,
         },
-        data,
+        data: createData,
       });
 
       return normalizePrismaProject(project);
@@ -191,7 +280,7 @@ async function saveProjectWithPrisma(
     const project = await prisma.project.create({
       data: {
         id: input.id,
-        ...data,
+        ...createData,
       },
     });
 
@@ -199,10 +288,57 @@ async function saveProjectWithPrisma(
   }
 
   const project = await prisma.project.create({
-    data,
+    data: createData,
   });
 
   return normalizePrismaProject(project);
+}
+
+type PrismaProjectData = Pick<
+  Prisma.ProjectUncheckedCreateInput,
+  | "title"
+  | "idea"
+  | "videoUrl"
+  | "audioUrl"
+  | "thumbnailUrl"
+  | "status"
+  | "platforms"
+  | "scriptJson"
+  | "timelineJson"
+  | "subtitlesJson"
+  | "settingsJson"
+>;
+
+function buildPrismaProjectData(input: SaveProjectInput): PrismaProjectData {
+  const cleanVideoUrl = input.videoUrl?.trim() || "";
+
+  return {
+    title: input.title || "Untitled AI Video",
+    idea: input.idea?.trim() || "",
+    videoUrl: cleanVideoUrl,
+    audioUrl: input.audioUrl || "",
+    thumbnailUrl: input.thumbnailUrl || cleanVideoUrl || "",
+    status: input.status || "completed",
+    platforms: input.platforms || [],
+    ...(input.scriptJson !== undefined
+      ? { scriptJson: toPrismaJson(input.scriptJson) }
+      : {}),
+    ...(input.timelineJson !== undefined
+      ? { timelineJson: toPrismaJson(input.timelineJson) }
+      : {}),
+    ...(input.subtitlesJson !== undefined
+      ? { subtitlesJson: toPrismaJson(input.subtitlesJson) }
+      : {}),
+    ...(input.settingsJson !== undefined
+      ? { settingsJson: toPrismaJson(input.settingsJson) }
+      : {}),
+  };
+}
+
+function toPrismaJson(
+  value: unknown
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
+  return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
 }
 
 async function getProjectsWithPrisma(): Promise<StoredProject[]> {

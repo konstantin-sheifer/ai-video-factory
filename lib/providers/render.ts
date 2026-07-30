@@ -4,6 +4,10 @@ import { mkdir, readFile, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
+import {
+  fetchSafeMedia,
+  SafeMediaError,
+} from "@/lib/security/media-policy";
 
 export type SubtitleItem = {
   id?: number;
@@ -264,7 +268,7 @@ async function resolveAssetToFile(
   }
 
   if (cleanUrl.startsWith("data:")) {
-    return writeDataUrlToTempFile(cleanUrl, kind, renderId);
+    throw new SafeMediaError("Unsupported remote media URL.", 400);
   }
 
   if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
@@ -274,50 +278,13 @@ async function resolveAssetToFile(
   throw new Error(`Unsupported ${kind} URL format.`);
 }
 
-async function writeDataUrlToTempFile(
-  dataUrl: string,
-  kind: "video" | "audio",
-  renderId: string
-) {
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-
-  if (!match) {
-    throw new Error(`Invalid ${kind} data URL.`);
-  }
-
-  const mimeType = match[1];
-  const base64 = match[2];
-  const extension = getExtensionFromMimeType(mimeType, kind);
-  const buffer = Buffer.from(base64, "base64");
-
-  const tempDir = path.join(os.tmpdir(), "ai-video-factory-renders");
-  await mkdir(tempDir, { recursive: true });
-
-  const filePath = path.join(tempDir, `${kind}-${renderId}-${Date.now()}.${extension}`);
-  await writeFile(filePath, buffer);
-
-  return filePath;
-}
-
 async function downloadRemoteAssetToTempFile(
   remoteUrl: string,
   kind: "video" | "audio",
   renderId: string
 ) {
-  const response = await fetch(remoteUrl, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to download ${kind} asset. Status: ${response.status}`
-    );
-  }
-
-  const contentType = response.headers.get("content-type") || "";
+  const { buffer, contentType } = await fetchSafeMedia(remoteUrl);
   const extension = getExtensionFromMimeType(contentType, kind);
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
 
   const tempDir = path.join(os.tmpdir(), "ai-video-factory-renders");
   await mkdir(tempDir, { recursive: true });

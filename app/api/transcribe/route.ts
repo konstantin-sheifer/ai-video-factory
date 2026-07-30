@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  fetchSafeMedia,
+  SafeMediaError,
+} from "@/lib/security/media-policy";
 
 type TranscribeRequest = {
   audioUrl?: string;
@@ -84,6 +88,13 @@ export async function POST(request: Request) {
       text: data.text || "",
     });
   } catch (error) {
+    if (error instanceof SafeMediaError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Transcribe route error:", error);
 
     return NextResponse.json(
@@ -94,38 +105,10 @@ export async function POST(request: Request) {
 }
 
 async function audioUrlToFile(audioUrl: string) {
-  if (audioUrl.startsWith("data:")) {
-    return dataUrlToFile(audioUrl);
-  }
+  const { buffer, contentType } = await fetchSafeMedia(audioUrl);
 
-  const response = await fetch(audioUrl, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to load audio. Status: ${response.status}`);
-  }
-
-  const blob = await response.blob();
-
-  return new File([blob], "voiceover.mp3", {
-    type: blob.type || "audio/mpeg",
-  });
-}
-
-function dataUrlToFile(dataUrl: string) {
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-
-  if (!match) {
-    throw new Error("Invalid audio data URL.");
-  }
-
-  const mimeType = match[1] || "audio/mpeg";
-  const base64 = match[2];
-  const buffer = Buffer.from(base64, "base64");
-
-  return new File([buffer], "voiceover.mp3", {
-    type: mimeType,
+  return new File([Uint8Array.from(buffer)], "voiceover.mp3", {
+    type: contentType || "audio/mpeg",
   });
 }
 

@@ -25,14 +25,27 @@ type CreativeProducerResult = Awaited<
 >;
 
 export async function POST(request: Request) {
+  let body: ScriptRequest;
+
   try {
-    const body = (await request.json()) as ScriptRequest;
-    const rawIdea = body.idea?.trim();
+    body = (await request.json()) as ScriptRequest;
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid request body." },
+      { status: 400 }
+    );
+  }
 
-    if (!rawIdea) {
-      return NextResponse.json({ error: "Video idea is required." }, { status: 400 });
-    }
+  const rawIdea = typeof body.idea === "string" ? body.idea.trim() : "";
 
+  if (!rawIdea) {
+    return NextResponse.json(
+      { error: "Video idea is required." },
+      { status: 400 }
+    );
+  }
+
+  try {
     const duration = normalizeDuration(body.duration);
     const creativeProducer = await createCreativeProducerDecision({ rawIdea, duration });
     const creativeBrief = getOrCreateCreativeBrief(creativeProducer, rawIdea, duration);
@@ -79,7 +92,10 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error("Script route error:", error);
+    console.error("Script route failure.", {
+      category: "unexpected_internal_failure",
+      errorType: error instanceof Error ? error.name : "unknown",
+    });
 
     return NextResponse.json(
       {
@@ -88,8 +104,8 @@ export async function POST(request: Request) {
         canGenerate: false,
         generationBlocked: true,
         generationBlockReason:
-          error instanceof Error ? error.message : "Unknown AI Brain error.",
-        error: error instanceof Error ? error.stack : String(error),
+          "Script generation failed. Please try again.",
+        error: "Failed to generate script.",
       },
       { status: 500 }
     );

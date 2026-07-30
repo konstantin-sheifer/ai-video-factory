@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { getProjectById } from "@/lib/storage/projects";
+import {
+  getProjectById,
+  getProjectByIdForUser,
+} from "@/lib/storage/projects";
+import {
+  AppAuthenticationError,
+  requireAppUser,
+} from "@/lib/auth/require-app-user";
 
 type RouteContext = {
   params: Promise<{
@@ -9,6 +16,7 @@ type RouteContext = {
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
+    const { internalUserId } = await requireAppUser();
     const { id } = await context.params;
 
     if (!id) {
@@ -18,9 +26,18 @@ export async function GET(_request: Request, context: RouteContext) {
       );
     }
 
-    const project = await getProjectById(id);
+    const project = await getProjectByIdForUser(id, internalUserId);
 
     if (!project) {
+      const existingProject = await getProjectById(id);
+
+      if (existingProject) {
+        return NextResponse.json(
+          { error: "You do not have permission to access this project." },
+          { status: 403 }
+        );
+      }
+
       return NextResponse.json(
         { error: "Project not found." },
         { status: 404 }
@@ -30,7 +47,14 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({
       project,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof AppAuthenticationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     return NextResponse.json(
       { error: "Failed to load project." },
       { status: 500 }

@@ -1,6 +1,10 @@
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
+import {
+  fetchSafeMedia,
+  SafeMediaError,
+} from "@/lib/security/media-policy";
 
 type PersistRequest = {
   url?: string;
@@ -20,22 +24,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await fetch(sourceUrl, {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return NextResponse.json(
-        {
-          error: "Failed to download remote asset.",
-          status: response.status,
-        },
-        { status: 502 }
-      );
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const { buffer } = await fetchSafeMedia(sourceUrl);
 
     const safeFileName =
       body.fileName?.replace(/[^a-zA-Z0-9._-]/g, "") ||
@@ -58,6 +47,13 @@ export async function POST(request: Request) {
       size: buffer.length,
     });
   } catch (error) {
+    if (error instanceof SafeMediaError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Persist asset error:", error);
 
     return NextResponse.json(

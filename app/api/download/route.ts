@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { downloadVideo } from "@/lib/providers/download";
+import {
+  DownloadProviderError,
+  downloadVideo,
+} from "@/lib/providers/download";
+import { SafeMediaError } from "@/lib/security/media-policy";
 
 type DownloadRequest = {
   videoUrl?: string;
@@ -30,6 +34,20 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof DownloadProviderError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
+    if (error instanceof SafeMediaError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Download route error:", error);
 
     return NextResponse.json(

@@ -77,6 +77,27 @@ export async function getGenerationsByProjectId(
   return generations.map(normalizeGeneration);
 }
 
+export async function getGenerationsByProjectIdForUser(
+  projectId: string,
+  userId: string
+): Promise<StoredGeneration[]> {
+  const generations = await prisma.generation.findMany({
+    where: {
+      projectId,
+      project: {
+        is: {
+          userId,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+  return generations.map(normalizeGeneration);
+}
+
 export async function updateGenerationStatus(
   id: string,
   status: GenerationStatus,

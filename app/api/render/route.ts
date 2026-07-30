@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { renderVideo } from "@/lib/providers/render";
+import { SafeMediaError } from "@/lib/security/media-policy";
 
 type RenderRequest = {
   videoUrl?: string;
@@ -48,6 +49,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof SafeMediaError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+
     console.error("Render route error:", error);
 
     return NextResponse.json(
