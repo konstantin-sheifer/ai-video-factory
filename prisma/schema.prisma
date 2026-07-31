@@ -7,62 +7,254 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum GenerationStatus {
+  queued
+  planning
+  processing
+  generating_video
+  generating_voice
+  creating_subtitles
+  rendering
+  finalizing
+  completed
+  retrying
+  cancelling
+  cancelled
+  failed
+}
+
+enum GenerationStage {
+  intake
+  planning
+  script
+  timeline
+  video
+  voice
+  transcription
+  subtitles
+  render
+  finalization
+  completed
+}
+
+enum GenerationJobType {
+  planning
+  script
+  timeline
+  video_submit
+  video_poll
+  media_ingest
+  voice
+  transcription
+  subtitles
+  render
+  finalize
+}
+
+enum GenerationJobStatus {
+  queued
+  claimed
+  running
+  waiting_provider
+  retry_scheduled
+  succeeded
+  failed
+  dead_letter
+  cancelling
+  cancelled
+}
+
+enum ExecutionMode {
+  mock
+  live
+  mixed
+  legacy
+}
+
+enum MediaAssetType {
+  video
+  audio
+  subtitles
+  image
+  thumbnail
+  other
+}
+
+enum MediaAssetStatus {
+  pending
+  available
+  failed
+  deleted
+}
+
 model User {
-  id          String       @id @default(cuid())
-  clerkId     String       @unique
-  email       String?
-  name        String?
-  projects    Project[]
-  generations Generation[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id             String          @id @default(cuid())
+  clerkId        String          @unique
+  email          String?
+  name           String?
+  projects       Project[]
+  generations    Generation[]
+  generationJobs GenerationJob[]
+  mediaAssets    MediaAsset[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 }
 
 model Project {
-  id           String       @id @default(cuid())
-  userId       String?
-  title        String
-  idea         String       @db.Text
-  status       String       @default("completed")
-  platforms    String[]     @default([])
-  videoUrl     String       @db.Text
-  audioUrl     String?      @db.Text
-  thumbnailUrl String?      @db.Text
+  id            String       @id @default(cuid())
+  userId        String?
+  title         String
+  idea          String       @db.Text
+  status        String       @default("completed")
+  platforms     String[]     @default([])
+  videoUrl      String       @db.Text
+  audioUrl      String?      @db.Text
+  thumbnailUrl  String?      @db.Text
   scriptJson    Json?
   timelineJson  Json?
   subtitlesJson Json?
   settingsJson  Json?
-  user         User?        @relation(fields: [userId], references: [id])
-  generations  Generation[]
-  videos       Video[]
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  user          User?        @relation(fields: [userId], references: [id])
+  generations   Generation[]
+  videos        Video[]
+  mediaAssets   MediaAsset[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 model Generation {
-  id             String   @id @default(cuid())
-  userId         String?
-  projectId      String?
-  idea           String   @db.Text
-  prompt         String   @db.Text
-  status         String   @default("completed")
-  videoProvider  String   @default("mock")
-  voiceProvider  String   @default("mock")
-  renderProvider String   @default("mock")
-  videoUrl       String?  @db.Text
-  audioUrl       String?  @db.Text
-  finalVideoUrl  String?  @db.Text
-  errorMessage   String?  @db.Text
-  scriptJson     Json?
-  timelineJson   Json?
-  subtitlesJson  Json?
-  settingsJson   Json?
-  user           User?    @relation(fields: [userId], references: [id])
-  project        Project? @relation(fields: [projectId], references: [id])
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String           @id @default(cuid())
+  userId                String?
+  projectId             String?
+  idea                  String           @db.Text
+  prompt                String           @db.Text
+  status                GenerationStatus @default(completed)
+  currentStage          GenerationStage?
+  progress              Int              @default(100)
+  idempotencyKey        String?
+  inputJson             Json?
+  productionPackageJson Json?
+  aiBrainVersionJson    Json?
+  promptVersionJson     Json?
+  decisionSummaryJson   Json?
+  qualitySummaryJson    Json?
+  revisionMetadataJson  Json?
+  providerConfigJson    Json?
+  videoProvider         String           @default("mock")
+  voiceProvider         String           @default("mock")
+  renderProvider        String           @default("mock")
+  mode                  ExecutionMode    @default(legacy)
+  architectureVersion   String           @default("backend-v1")
+  schemaVersion         Int              @default(1)
+  version               Int              @default(0)
+  videoUrl              String?          @db.Text
+  audioUrl              String?          @db.Text
+  finalVideoUrl         String?          @db.Text
+  failureCode           String?
+  errorMessage          String?          @db.Text
+  scriptJson            Json?
+  timelineJson          Json?
+  subtitlesJson         Json?
+  settingsJson          Json?
+  cancelRequestedAt     DateTime?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  failedAt              DateTime?
+  cancelledAt           DateTime?
+  user                  User?            @relation(fields: [userId], references: [id])
+  project               Project?         @relation(fields: [projectId], references: [id])
+  jobs                  GenerationJob[]
+  mediaAssets           MediaAsset[]
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([status, updatedAt])
 }
 
+model GenerationJob {
+  id                  String              @id @default(cuid())
+  generationId        String
+  userId              String
+  type                GenerationJobType
+  stageKey            String
+  revision            Int                 @default(1)
+  status              GenerationJobStatus @default(queued)
+  dependsOnJobIds     String[]            @default([])
+  attemptCount        Int                 @default(0)
+  maxAttempts         Int                 @default(3)
+  nextRetryAt         DateTime?
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  heartbeatAt         DateTime?
+  provider            String?
+  providerOperationId String?
+  progress            Int                 @default(0)
+  failureCode         String?
+  errorMessage        String?             @db.Text
+  idempotencyKey      String              @unique
+  inputJson           Json?
+  outputJson          Json?
+  mode                ExecutionMode       @default(legacy)
+  version             Int                 @default(0)
+  queuedAt            DateTime            @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  cancelledAt         DateTime?
+  generation          Generation          @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaAssets         MediaAsset[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([generationId, stageKey, revision])
+  @@index([status, nextRetryAt, queuedAt])
+  @@index([generationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([provider, providerOperationId])
+  @@index([leaseExpiresAt])
+}
+
+model MediaAsset {
+  id               String           @id @default(cuid())
+  userId           String
+  generationId     String?
+  projectId        String?
+  jobId            String?
+  type             MediaAssetType
+  status           MediaAssetStatus @default(pending)
+  storageProvider  String
+  storageKey       String           @db.Text
+  authoritativeUrl String?          @db.Text
+  mimeType         String
+  byteSize         BigInt?
+  durationMs       Int?
+  width            Int?
+  height           Int?
+  checksum         String?
+  provider         String?
+  mode             ExecutionMode    @default(legacy)
+  metadataJson     Json?
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generation       Generation?      @relation(fields: [generationId], references: [id], onDelete: SetNull)
+  project          Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  job              GenerationJob?   @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([storageProvider, storageKey])
+  @@index([userId, createdAt])
+  @@index([generationId, type])
+  @@index([projectId, createdAt])
+  @@index([jobId])
+  @@index([status, updatedAt])
+}
+
+/// Legacy video metadata retained for compatibility with the current application.
+/// New durable pipeline media will use MediaAsset after the Milestone 2.2 cutover.
 model Video {
   id           String   @id @default(cuid())
   projectId    String?
