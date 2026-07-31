@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import { generationService } from "@/lib/services/generation-service";
+import {
+  ExecutionMode,
+  GenerationStatus as DurableGenerationStatus,
+} from "@prisma/client";
 
 export type GenerationStatus =
   | "queued"
@@ -42,21 +47,28 @@ export type SaveGenerationInput = {
 export async function saveGeneration(
   input: SaveGenerationInput
 ): Promise<StoredGeneration> {
-  const generation = await prisma.generation.create({
-    data: {
-      userId: input.userId,
-      projectId: input.projectId,
-      idea: input.idea || "",
-      prompt: input.prompt || "",
-      status: input.status || "completed",
-      videoProvider: input.videoProvider || "mock",
-      voiceProvider: input.voiceProvider || "mock",
-      renderProvider: input.renderProvider || "mock",
-      videoUrl: input.videoUrl || "",
-      audioUrl: input.audioUrl || "",
-      finalVideoUrl: input.finalVideoUrl || "",
-      errorMessage: input.errorMessage || "",
-    },
+  if (!input.userId) {
+    throw new Error(
+      "The generation compatibility adapter requires an authenticated owner."
+    );
+  }
+
+  const generation = await generationService.createGeneration({
+    userId: input.userId,
+    projectId: input.projectId,
+    idea: input.idea || "",
+    prompt: input.prompt || "",
+    status: toDurableStatus(input.status || "completed"),
+    progress: input.status && input.status !== "completed" ? 0 : 100,
+    videoProvider: input.videoProvider || "mock",
+    voiceProvider: input.voiceProvider || "mock",
+    renderProvider: input.renderProvider || "mock",
+    videoUrl: input.videoUrl || "",
+    audioUrl: input.audioUrl || "",
+    finalVideoUrl: input.finalVideoUrl || "",
+    errorMessage: input.errorMessage || "",
+    mode: ExecutionMode.legacy,
+    architectureVersion: "backend-v1-compat",
   });
 
   return normalizeGeneration(generation);
@@ -100,6 +112,7 @@ export async function getGenerationsByProjectIdForUser(
 
 export async function updateGenerationStatus(
   id: string,
+  userId: string,
   status: GenerationStatus,
   data?: {
     videoUrl?: string;
@@ -108,18 +121,19 @@ export async function updateGenerationStatus(
     errorMessage?: string;
   }
 ): Promise<StoredGeneration> {
-  const generation = await prisma.generation.update({
-    where: {
-      id,
-    },
-    data: {
-      status,
-      videoUrl: data?.videoUrl,
-      audioUrl: data?.audioUrl,
-      finalVideoUrl: data?.finalVideoUrl,
-      errorMessage: data?.errorMessage,
-    },
-  });
+  const generation =
+    status === "failed"
+      ? await generationService.failGeneration(id, userId, {
+          category: "legacy",
+          message: data?.errorMessage || "Generation processing failed.",
+          retryable: false,
+        })
+      : await generationService.transitionGenerationState(
+          id,
+          userId,
+          toDurableStatus(status),
+          data
+        );
 
   return normalizeGeneration(generation);
 }
@@ -171,4 +185,17 @@ function normalizeGenerationStatus(status: string): GenerationStatus {
   }
 
   return "completed";
+}
+
+function toDurableStatus(status: GenerationStatus): DurableGenerationStatus {
+  switch (status) {
+    case "queued":
+      return DurableGenerationStatus.queued;
+    case "processing":
+      return DurableGenerationStatus.processing;
+    case "failed":
+      return DurableGenerationStatus.failed;
+    case "completed":
+      return DurableGenerationStatus.completed;
+  }
 }
