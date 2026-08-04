@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: aivf-web
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health/ready
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: production
+      - key: QUEUE_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+
+  - type: keyvalue
+    name: aivf-queue
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot

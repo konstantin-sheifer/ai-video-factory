@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/aivf_ci
+      QUEUE_ENABLED: "false"
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+      CLERK_SECRET_KEY: sk_test_ci_placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma validate
+      - run: npx tsc --noEmit
+      - name: Lint deployment milestone source
+        run: npx eslint proxy.ts lib/health/readiness.ts app/api/health/live/route.ts app/api/health/ready/route.ts tests/health/readiness.test.ts
+      - run: npm run test:queue
+      - run: npm run test:health
+      - run: npm run build
+      - name: Validate Render manifest structure
+        run: node scripts/validate-render-manifest.mjs

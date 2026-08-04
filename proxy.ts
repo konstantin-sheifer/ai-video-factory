@@ -10,6 +10,8 @@ const isProtectedRoute = createRouteMatcher([
 const isPublicApiRoute = createRouteMatcher([
   "/api/generate",
   "/api/health/db",
+  "/api/health/live",
+  "/api/health/ready",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
