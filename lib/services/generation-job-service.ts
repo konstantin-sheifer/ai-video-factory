@@ -144,6 +144,16 @@ export class GenerationJobService {
     return job;
   }
 
+  async loadJobForWorker(id: string): Promise<GenerationJob> {
+    const job = await this.jobs.findById(id);
+
+    if (!job) {
+      throw new LifecycleResourceNotFoundError("job");
+    }
+
+    return job;
+  }
+
   async queueJob(id: string, userId: string): Promise<GenerationJob> {
     const job = await this.loadJob(id, userId);
 
@@ -175,15 +185,7 @@ export class GenerationJobService {
     now = new Date()
   ): Promise<GenerationJob> {
     assertRequired(leaseOwner, "Lease owner");
-    if (
-      !Number.isInteger(leaseDurationMs) ||
-      leaseDurationMs < 1_000 ||
-      leaseDurationMs > 15 * 60 * 1_000
-    ) {
-      throw new LifecycleValidationError(
-        "Lease duration must be between 1 second and 15 minutes."
-      );
-    }
+    assertLeaseDuration(leaseDurationMs);
 
     const current = await this.loadJob(id, userId);
     if (
@@ -259,6 +261,32 @@ export class GenerationJobService {
     const job = await this.loadJob(id, userId);
     this.assertValidLease(job, leaseOwner, now);
     return job;
+  }
+
+  async renewLease(
+    id: string,
+    userId: string,
+    leaseOwner: string,
+    leaseDurationMs: number,
+    now = new Date()
+  ): Promise<GenerationJob> {
+    assertRequired(leaseOwner, "Lease owner");
+    assertLeaseDuration(leaseDurationMs);
+    const renewed = await this.jobs.renewLease(
+      id,
+      userId,
+      leaseOwner,
+      new Date(now.getTime() + leaseDurationMs),
+      now
+    );
+
+    if (!renewed) {
+      throw new LifecycleConflictError(
+        "The job lease could not be renewed."
+      );
+    }
+
+    return renewed;
   }
 
   async startJob(
@@ -460,7 +488,10 @@ export class GenerationJobService {
     });
   }
 
-  getRetryBookkeeping(job: GenerationJob): {
+  getRetryBookkeeping(
+    job: GenerationJob,
+    now = new Date()
+  ): {
     retryCount: number;
     maxRetries: number;
     nextRetryAt: Date | null;
@@ -477,8 +508,79 @@ export class GenerationJobService {
         job.status === GenerationJobStatus.failed &&
         job.attemptCount < job.maxAttempts &&
         job.nextRetryAt !== null &&
-        job.nextRetryAt.getTime() <= Date.now(),
+        job.nextRetryAt.getTime() <= now.getTime(),
     };
+  }
+
+  listRecoveryCandidates(
+    now = new Date(),
+    limit = 50
+  ): Promise<GenerationJob[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new LifecycleValidationError(
+        "Recovery batch size must be between 1 and 100."
+      );
+    }
+
+    return this.jobs.listRecoveryCandidates(now, limit);
+  }
+
+  async recoverExpiredLease(
+    id: string,
+    now = new Date()
+  ): Promise<GenerationJob> {
+    const job = await this.loadJobForWorker(id);
+
+    if (
+      !job.leaseExpiresAt ||
+      job.leaseExpiresAt.getTime() > now.getTime()
+    ) {
+      throw new LifecycleValidationError("The job lease has not expired.");
+    }
+
+    if (job.status === GenerationJobStatus.claimed) {
+      assertJobTransition(job.status, GenerationJobStatus.queued);
+      return this.updateOrThrow(job, {
+        status: GenerationJobStatus.queued,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+      });
+    }
+
+    if (
+      job.status !== GenerationJobStatus.running &&
+      job.status !== GenerationJobStatus.waiting_provider
+    ) {
+      throw new LifecycleValidationError(
+        `A ${job.status} job is not eligible for lease recovery.`
+      );
+    }
+
+    const retryable = job.attemptCount < job.maxAttempts;
+    const status = retryable
+      ? GenerationJobStatus.failed
+      : GenerationJobStatus.dead_letter;
+    assertJobTransition(job.status, status);
+
+    return this.updateOrThrow(job, {
+      status,
+      failureCode: "worker:lease_expired",
+      errorMessage: "Worker lease expired before the job completed.",
+      outputJson: mergeJobMetadata(job.outputJson, {
+        failure: {
+          category: "worker",
+          code: "lease_expired",
+          retryable,
+          occurredAt: now.toISOString(),
+        },
+      }),
+      failedAt: now,
+      nextRetryAt: retryable ? now : null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+    });
   }
 
   private assertValidLease(
@@ -552,6 +654,18 @@ export const generationJobService = new GenerationJobService();
 function assertRequired(value: string, label: string): void {
   if (!value.trim()) {
     throw new LifecycleValidationError(`${label} is required.`);
+  }
+}
+
+function assertLeaseDuration(leaseDurationMs: number): void {
+  if (
+    !Number.isInteger(leaseDurationMs) ||
+    leaseDurationMs < 1_000 ||
+    leaseDurationMs > 15 * 60 * 1_000
+  ) {
+    throw new LifecycleValidationError(
+      "Lease duration must be between 1 second and 15 minutes."
+    );
   }
 }
 

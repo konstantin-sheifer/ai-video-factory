@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:queue": "tsx --test tests/queue/*.test.ts",
+    "test:queue:db": "node --conditions=react-server --import tsx scripts/verify-queue-database.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.1",
@@ -40,6 +42,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   }
 }

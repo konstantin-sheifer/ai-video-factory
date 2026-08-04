@@ -18,6 +18,12 @@ export class GenerationJobRepository {
     });
   }
 
+  findById(id: string): Promise<GenerationJob | null> {
+    return this.database.generationJob.findUnique({
+      where: { id },
+    });
+  }
+
   findOwnedByIdempotencyKey(
     userId: string,
     idempotencyKey: string
@@ -105,5 +111,57 @@ export class GenerationJobRepository {
     }
 
     return this.findOwned(id, userId);
+  }
+
+  async renewLease(
+    id: string,
+    userId: string,
+    leaseOwner: string,
+    leaseExpiresAt: Date,
+    now: Date
+  ): Promise<GenerationJob | null> {
+    const result = await this.database.generationJob.updateMany({
+      where: {
+        id,
+        userId,
+        leaseOwner,
+        leaseExpiresAt: { gt: now },
+        status: { in: ["claimed", "running", "waiting_provider"] },
+      },
+      data: {
+        leaseExpiresAt,
+        heartbeatAt: now,
+        version: { increment: 1 },
+      },
+    });
+
+    if (result.count !== 1) {
+      return null;
+    }
+
+    return this.findOwned(id, userId);
+  }
+
+  listRecoveryCandidates(
+    now: Date,
+    limit: number
+  ): Promise<GenerationJob[]> {
+    return this.database.generationJob.findMany({
+      where: {
+        OR: [
+          { status: "queued" },
+          {
+            status: "failed",
+            nextRetryAt: { lte: now },
+          },
+          {
+            status: { in: ["claimed", "running", "waiting_provider"] },
+            leaseExpiresAt: { lte: now },
+          },
+        ],
+      },
+      orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+      take: limit,
+    });
   }
 }
