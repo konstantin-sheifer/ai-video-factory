@@ -31,6 +31,7 @@ jobs:
         run: npx eslint proxy.ts lib/health/readiness.ts app/api/health/live/route.ts app/api/health/ready/route.ts tests/health/readiness.test.ts
       - run: npm run test:queue
       - run: npm run test:health
+      - run: npm run test:staging
       - run: npm run build
       - name: Validate Render manifest structure
         run: node scripts/validate-render-manifest.mjs

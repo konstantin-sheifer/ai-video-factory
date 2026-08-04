@@ -6,10 +6,6 @@ import {
   requireAppUser,
 } from "@/lib/auth/require-app-user";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 const RequestSchema = z.object({
   channelName: z.string().min(1),
   category: z.string().min(1),
@@ -38,6 +34,9 @@ export async function POST(request: Request) {
     }
 
     const { channelName, category } = parsed.data;
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5-mini",

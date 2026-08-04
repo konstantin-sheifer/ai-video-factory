@@ -12,11 +12,8 @@ export type VideoProviderResult = {
   originalVideoUrl?: string;
 };
 
-const MOCK_VIDEOS = [
-  "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-  "https://media.w3.org/2010/05/sintel/trailer.mp4",
-  "https://media.w3.org/2010/05/bunny/trailer.mp4",
-];
+const MOCK_VIDEO_URL =
+  "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
 export async function createVideo(prompt: string): Promise<VideoProviderResult> {
   const provider = process.env.VIDEO_PROVIDER || "mock";
@@ -35,16 +32,14 @@ export async function createVideo(prompt: string): Promise<VideoProviderResult> 
 }
 
 function createMockVideo(): VideoProviderResult {
-  const index = Math.floor(Math.random() * MOCK_VIDEOS.length);
-
-  console.log("MOCK VIDEO USED:", MOCK_VIDEOS[index]);
+  console.log("MOCK VIDEO USED:", MOCK_VIDEO_URL);
 
   return {
     provider: "mock",
     mock: true,
     status: "SUCCEEDED",
-    taskId: `mock-video-task-${Date.now()}-${index}`,
-    videoUrl: MOCK_VIDEOS[index],
+    taskId: `mock-video-task-${Date.now()}`,
+    videoUrl: MOCK_VIDEO_URL,
   };
 }
 

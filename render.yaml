@@ -3,16 +3,32 @@ services:
     name: aivf-web
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run prisma:generate && npm run prisma:migrate:deploy && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health/ready
     envVars:
       - key: NODE_VERSION
         value: "20"
       - key: DEPLOYMENT_ENVIRONMENT
-        value: production
+        value: staging
       - key: QUEUE_ENABLED
         value: "false"
+      - key: PROJECT_STORAGE_PROVIDER
+        value: prisma
+      - key: AI_BRAIN_LIVE
+        value: "false"
+      - key: VIDEO_PROVIDER
+        value: mock
+      - key: VOICE_PROVIDER
+        value: mock
+      - key: SUBTITLE_PROVIDER
+        value: mock
+      - key: RENDER_PROVIDER
+        value: mock
+      - key: PUBLISH_PROVIDER
+        value: mock
+      - key: DOWNLOAD_PROVIDER
+        value: mock
       - key: DATABASE_URL
         sync: false
       - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY

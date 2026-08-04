@@ -104,7 +104,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       provider: "ai-brain",
-      mock: false,
+      mock: isMockAIBrainConfiguration(),
       canGenerate,
       generationBlocked: !canGenerate,
       generationBlockReason: canGenerate
@@ -142,6 +142,10 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function isMockAIBrainConfiguration() {
+  return process.env.AI_BRAIN_LIVE === "false" || !process.env.OPENAI_API_KEY;
 }
 
 function buildAIBrainPackage(input: {
