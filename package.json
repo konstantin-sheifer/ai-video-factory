@@ -12,7 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "lint": "eslint",
-    "test:staging": "node --conditions=react-server --import tsx --test tests/deployment/staging-readiness.test.ts",
+    "test:staging": "node --conditions=react-server --import tsx --test tests/deployment/staging-readiness.test.ts tests/deployment/auth-session-redirect.test.ts",
     "test:queue": "tsx --test tests/queue/*.test.ts",
     "test:queue:db": "node --conditions=react-server --import tsx scripts/verify-queue-database.ts",
     "test:health": "node --conditions=react-server --import tsx --test tests/health/*.test.ts"

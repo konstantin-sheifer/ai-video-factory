@@ -12,7 +12,7 @@ const MOCK_VIDEO_URL =
   "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
 
 test("Render uses origin-relative Clerk routes and preserves protected returns", async () => {
-  const [manifest, proxy, signInPage, signUpPage] = await Promise.all([
+  const [manifest, proxy, signInPage, signUpPage, clientRedirect] = await Promise.all([
     readFile(path.join(process.cwd(), "render.yaml"), "utf8"),
     readFile(path.join(process.cwd(), "proxy.ts"), "utf8"),
     readFile(
@@ -21,6 +21,10 @@ test("Render uses origin-relative Clerk routes and preserves protected returns",
     ),
     readFile(
       path.join(process.cwd(), "app", "sign-up", "[[...sign-up]]", "page.tsx"),
+      "utf8"
+    ),
+    readFile(
+      path.join(process.cwd(), "app", "components", "auth-session-redirect.tsx"),
       "utf8"
     ),
   ]);
@@ -48,9 +52,14 @@ test("Render uses origin-relative Clerk routes and preserves protected returns",
   assert.match(signInPage, /const \{ userId \} = await auth\(\)/);
   assert.match(signInPage, /if \(userId\) \{\s+redirect\("\/dashboard"\)/);
   assert.match(signInPage, /<SignIn/);
+  assert.match(signInPage, /<AuthSessionRedirect \/>/);
   assert.match(signUpPage, /const \{ userId \} = await auth\(\)/);
   assert.match(signUpPage, /if \(userId\) \{\s+redirect\("\/dashboard"\)/);
   assert.match(signUpPage, /<SignUp/);
+  assert.match(signUpPage, /<AuthSessionRedirect \/>/);
+  assert.match(clientRedirect, /const \{ isLoaded, isSignedIn \} = useAuth\(\)/);
+  assert.match(clientRedirect, /router\.replace\(getAuthenticatedDestination/);
+  assert.match(clientRedirect, /getAuthenticatedDestination\(window\.location\)/);
 });
 
 test("explicit staging providers preserve mock contracts without media writes", async () => {

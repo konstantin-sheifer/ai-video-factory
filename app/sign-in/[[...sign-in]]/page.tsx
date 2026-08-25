@@ -1,6 +1,7 @@
 import { SignIn } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { AuthSessionRedirect } from "@/app/components/auth-session-redirect";
 
 export default async function SignInPage() {
   const { userId } = await auth();
@@ -11,6 +12,7 @@ export default async function SignInPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#050816] px-6">
+      <AuthSessionRedirect />
       <SignIn
         signUpUrl="/sign-up"
         fallbackRedirectUrl="/dashboard"
