@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -10,6 +10,34 @@ import { createVoice } from "../../lib/providers/voice";
 
 const MOCK_VIDEO_URL =
   "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
+
+test("Render uses origin-relative Clerk routes and preserves protected returns", async () => {
+  const [manifest, proxy] = await Promise.all([
+    readFile(path.join(process.cwd(), "render.yaml"), "utf8"),
+    readFile(path.join(process.cwd(), "proxy.ts"), "utf8"),
+  ]);
+
+  assert.match(
+    manifest,
+    /NEXT_PUBLIC_CLERK_SIGN_IN_URL\s+value: \/sign-in/
+  );
+  assert.match(
+    manifest,
+    /NEXT_PUBLIC_CLERK_SIGN_UP_URL\s+value: \/sign-up/
+  );
+  assert.match(
+    manifest,
+    /NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL\s+value: \/dashboard/
+  );
+  assert.match(
+    manifest,
+    /NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL\s+value: \/dashboard/
+  );
+  assert.doesNotMatch(manifest, /localhost:3000/);
+  assert.doesNotMatch(manifest, /aivf-web\.onrender\.com/);
+  assert.match(proxy, /"\/loading\(\.\*\)"/);
+  assert.match(proxy, /await auth\.protect\(\)/);
+});
 
 test("explicit staging providers preserve mock contracts without media writes", async () => {
   const previousEnvironment = {

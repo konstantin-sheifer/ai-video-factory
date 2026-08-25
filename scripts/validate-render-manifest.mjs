@@ -15,6 +15,17 @@ assert.match(manifest, /SUBTITLE_PROVIDER\s+value: mock/);
 assert.match(manifest, /RENDER_PROVIDER\s+value: mock/);
 assert.match(manifest, /PUBLISH_PROVIDER\s+value: mock/);
 assert.match(manifest, /DOWNLOAD_PROVIDER\s+value: mock/);
+assert.match(manifest, /NEXT_PUBLIC_CLERK_SIGN_IN_URL\s+value: \/sign-in/);
+assert.match(manifest, /NEXT_PUBLIC_CLERK_SIGN_UP_URL\s+value: \/sign-up/);
+assert.match(
+  manifest,
+  /NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL\s+value: \/dashboard/
+);
+assert.match(
+  manifest,
+  /NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL\s+value: \/dashboard/
+);
+assert.doesNotMatch(manifest, /localhost:3000/);
 assert.match(
   manifest,
   /buildCommand: npm ci && npm run prisma:generate && npm run prisma:migrate:deploy && npm run build/
