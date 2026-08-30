@@ -2,6 +2,11 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import {
+  backgroundMusicPercentToVolume,
+  DEFAULT_BACKGROUND_MUSIC_VOLUME,
+  normalizeBackgroundMusicVolume,
+} from "@/lib/studio/background-music";
 
 type Scene = {
   scene: number;
@@ -92,6 +97,9 @@ type StoredSession = {
   script: GeneratedScript | null;
   timeline: TimelineItem[];
   renderState: RenderState;
+  backgroundMusicEnabled?: boolean;
+  backgroundMusicVolume?: number;
+  settingsJson?: Record<string, unknown>;
 };
 
 type SavedProject = {
@@ -195,7 +203,13 @@ function StudioPageContent() {
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [voiceoverEnabled, setVoiceoverEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(
+    DEFAULT_BACKGROUND_MUSIC_VOLUME
+  );
   const [voiceStyle, setVoiceStyle] = useState<VoiceStyle>("cinematic");
+  const [projectSettings, setProjectSettings] = useState<Record<string, unknown>>(
+    {}
+  );
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([]);
   const [availablePlatforms, setAvailablePlatforms] = useState<Platform[]>([]);
@@ -325,6 +339,11 @@ function StudioPageContent() {
     setScript(session.script || null);
     setTimeline(session.timeline || []);
     setRenderState(session.renderState || "Completed");
+    setMusicEnabled(session.backgroundMusicEnabled ?? false);
+    setMusicVolume(
+      normalizeBackgroundMusicVolume(session.backgroundMusicVolume)
+    );
+    setProjectSettings(session.settingsJson || {});
     setPublishStatus("Select platforms to publish.");
     setDownloadStatus("");
     setCurrentSceneIndex(0);
@@ -357,6 +376,8 @@ function StudioPageContent() {
       }
 
       const project = data.project as SavedProject;
+      const restoredSettings = getStudioSettings(project.settingsJson);
+      setProjectSettings(isRecord(project.settingsJson) ? project.settingsJson : {});
 
       const restoredScript = isGeneratedScript(project.scriptJson)
         ? project.scriptJson
@@ -377,6 +398,11 @@ function StudioPageContent() {
       setScript(restoredScript);
       setTimeline(restoredTimeline);
       setSubtitles(restoredSubtitles);
+      setSubtitlesEnabled(restoredSettings.subtitlesEnabled);
+      setVoiceoverEnabled(restoredSettings.voiceoverEnabled);
+      setMusicEnabled(restoredSettings.backgroundMusicEnabled);
+      setMusicVolume(restoredSettings.backgroundMusicVolume);
+      setVoiceStyle(restoredSettings.voiceStyle);
       setRenderState("Completed");
       setPublishStatus("Select platforms to publish.");
 
@@ -390,6 +416,9 @@ function StudioPageContent() {
         script: restoredScript,
         timeline: restoredTimeline,
         renderState: "Completed",
+        backgroundMusicEnabled: restoredSettings.backgroundMusicEnabled,
+        backgroundMusicVolume: restoredSettings.backgroundMusicVolume,
+        settingsJson: isRecord(project.settingsJson) ? project.settingsJson : {},
       });
     } catch {
       setPublishStatus("Project could not be loaded.");
@@ -642,6 +671,7 @@ function StudioPageContent() {
           timeline: generatedTimeline,
           subtitlesEnabled,
           backgroundMusicEnabled: musicEnabled,
+          backgroundMusicVolume: musicVolume,
           renderStyle: "viral",
         }),
       });
@@ -668,12 +698,14 @@ function StudioPageContent() {
         subtitlesEnabled,
         voiceoverEnabled,
         backgroundMusicEnabled: musicEnabled,
+        backgroundMusicVolume: musicVolume,
         renderStyle: "viral",
         voiceStyle,
         videoProvider: videoData.provider || "runway",
         voiceProvider: voiceData.provider || "elevenlabs",
         renderProvider: renderData.provider || "mock",
       };
+      setProjectSettings(settingsJson);
 
       const projectResponse = await fetch("/api/projects", {
         method: "POST",
@@ -751,6 +783,9 @@ function StudioPageContent() {
         script: generatedScript,
         timeline: generatedTimeline,
         renderState: "Completed",
+        backgroundMusicEnabled: musicEnabled,
+        backgroundMusicVolume: musicVolume,
+        settingsJson,
       });
 
       window.history.replaceState({}, "", `/studio?projectId=${nextProjectId}`);
@@ -823,9 +858,63 @@ function StudioPageContent() {
   }
 
   function toggleMusic() {
-    setMusicEnabled((current) => !current);
+    const nextValue = !musicEnabled;
+    setMusicEnabled(nextValue);
     setDownloadStatus("");
     setPublishStatus("Background music will be added in the render step later.");
+    void persistBackgroundMusicSettings(nextValue, musicVolume);
+  }
+
+  function changeMusicVolume(value: string) {
+    const nextVolume = backgroundMusicPercentToVolume(value);
+    setMusicVolume(nextVolume);
+    persistBackgroundMusicSession(musicEnabled, nextVolume);
+    setDownloadStatus("");
+  }
+
+  async function persistBackgroundMusicSettings(
+    enabled: boolean,
+    volume: number
+  ) {
+    const normalizedVolume = normalizeBackgroundMusicVolume(volume);
+    persistBackgroundMusicSession(enabled, normalizedVolume);
+
+    if (!projectId || !Object.keys(projectSettings).length) return;
+
+    const nextSettings = {
+      ...projectSettings,
+      backgroundMusicEnabled: enabled,
+      backgroundMusicVolume: normalizedVolume,
+    };
+    setProjectSettings(nextSettings);
+
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projectId, settingsJson: nextSettings }),
+      });
+      if (!response.ok) {
+        setPublishStatus("Background music setting could not be saved.");
+      }
+    } catch {
+      setPublishStatus("Background music setting could not be saved.");
+    }
+  }
+
+  function persistBackgroundMusicSession(enabled: boolean, volume: number) {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      const session = JSON.parse(raw) as StoredSession;
+      saveSession({
+        ...session,
+        backgroundMusicEnabled: enabled,
+        backgroundMusicVolume: normalizeBackgroundMusicVolume(volume),
+      });
+    } catch {
+      // A future successful Studio save will replace malformed session data.
+    }
   }
 
   function syncAudioWithVideo() {
@@ -982,6 +1071,7 @@ function StudioPageContent() {
             timeline,
             subtitlesEnabled,
             backgroundMusicEnabled: musicEnabled,
+            backgroundMusicVolume: musicVolume,
             renderStyle: "viral",
           }),
         });
@@ -1213,19 +1303,58 @@ function StudioPageContent() {
                 </select>
               </label>
 
-              <button
-                onClick={toggleMusic}
-                className="flex h-[38px] w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4"
-              >
+              <div className="flex h-[38px] w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4">
                 <span className="text-sm font-bold">Background Music</span>
-                <span
-                  className={`h-5 w-5 rounded-md border ${
-                    musicEnabled
-                      ? "border-cyan-400 bg-cyan-400"
-                      : "border-white/20"
-                  }`}
-                />
-              </button>
+                <div className="ml-auto flex items-center gap-2">
+                  {musicEnabled ? (
+                    <>
+                      <input
+                        aria-label="Background music volume"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={Math.round(musicVolume * 100)}
+                        onChange={(event) => changeMusicVolume(event.target.value)}
+                        onPointerUp={(event) =>
+                          void persistBackgroundMusicSettings(
+                            musicEnabled,
+                            backgroundMusicPercentToVolume(
+                              event.currentTarget.value
+                            )
+                          )
+                        }
+                        onKeyUp={(event) =>
+                          void persistBackgroundMusicSettings(
+                            musicEnabled,
+                            backgroundMusicPercentToVolume(
+                              event.currentTarget.value
+                            )
+                          )
+                        }
+                        className="h-1 w-20 cursor-pointer accent-cyan-400"
+                      />
+                      <output
+                        aria-label="Background music volume value"
+                        className="w-8 text-right text-[10px] font-black tabular-nums text-cyan-300"
+                      >
+                        {Math.round(musicVolume * 100)}%
+                      </output>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label={musicEnabled ? "Disable background music" : "Enable background music"}
+                    aria-pressed={musicEnabled}
+                    onClick={toggleMusic}
+                    className={`h-5 w-5 rounded-md border ${
+                      musicEnabled
+                        ? "border-cyan-400 bg-cyan-400"
+                        : "border-white/20"
+                    }`}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1295,6 +1424,29 @@ function getActiveSubtitle(
     script?.scenes?.[currentSceneIndex % Math.max(script.scenes.length, 1)]
       ?.subtitle || ""
   );
+}
+
+function getStudioSettings(value: unknown) {
+  const settings = isRecord(value) ? value : {};
+  const voiceStyle = voiceStyleOptions.some(
+    (option) => option.id === settings.voiceStyle
+  )
+    ? (settings.voiceStyle as VoiceStyle)
+    : "cinematic";
+
+  return {
+    subtitlesEnabled: settings.subtitlesEnabled !== false,
+    voiceoverEnabled: settings.voiceoverEnabled !== false,
+    backgroundMusicEnabled: settings.backgroundMusicEnabled === true,
+    backgroundMusicVolume: normalizeBackgroundMusicVolume(
+      settings.backgroundMusicVolume
+    ),
+    voiceStyle,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function buildFallbackScript(project: SavedProject): GeneratedScript {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { renderVideo } from "@/lib/providers/render";
 import { SafeMediaError } from "@/lib/security/media-policy";
+import { normalizeBackgroundMusicVolume } from "@/lib/studio/background-music";
 
 type RenderRequest = {
   videoUrl?: string;
@@ -23,6 +24,7 @@ type RenderRequest = {
   }[];
   subtitlesEnabled?: boolean;
   backgroundMusicEnabled?: boolean;
+  backgroundMusicVolume?: number;
   renderStyle?: "cinematic" | "viral" | "kids" | "dramatic";
 };
 
@@ -44,6 +46,9 @@ export async function POST(request: Request) {
       timeline: body.timeline,
       subtitlesEnabled: body.subtitlesEnabled,
       backgroundMusicEnabled: body.backgroundMusicEnabled,
+      backgroundMusicVolume: normalizeBackgroundMusicVolume(
+        body.backgroundMusicVolume
+      ),
       renderStyle: body.renderStyle,
     });
 

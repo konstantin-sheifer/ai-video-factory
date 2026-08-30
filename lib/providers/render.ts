@@ -8,6 +8,7 @@ import {
   fetchSafeMedia,
   SafeMediaError,
 } from "@/lib/security/media-policy";
+import { normalizeBackgroundMusicVolume } from "@/lib/studio/background-music";
 
 export type SubtitleItem = {
   id?: number;
@@ -34,6 +35,7 @@ export type RenderProviderInput = {
   timeline?: TimelineItem[];
   subtitlesEnabled?: boolean;
   backgroundMusicEnabled?: boolean;
+  backgroundMusicVolume?: number;
   renderStyle?: "cinematic" | "viral" | "kids" | "dramatic";
 };
 
@@ -49,6 +51,7 @@ export type RenderProviderResult = {
     audioUrl: string;
     subtitlesEnabled: boolean;
     backgroundMusicEnabled: boolean;
+    backgroundMusicVolume: number;
     subtitlesCount: number;
     timelineCount: number;
     estimatedDuration: number;
@@ -228,6 +231,9 @@ function createMetadata(input: RenderProviderInput) {
     audioUrl: input.audioUrl || "",
     subtitlesEnabled: input.subtitlesEnabled ?? true,
     backgroundMusicEnabled: input.backgroundMusicEnabled ?? true,
+    backgroundMusicVolume: normalizeBackgroundMusicVolume(
+      input.backgroundMusicVolume
+    ),
     subtitlesCount: input.subtitles?.length || 0,
     timelineCount: input.timeline?.length || 0,
     estimatedDuration: getEstimatedDuration(input),
