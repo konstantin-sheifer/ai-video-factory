@@ -1347,10 +1347,10 @@ function StudioPageContent() {
                     aria-label={musicEnabled ? "Disable background music" : "Enable background music"}
                     aria-pressed={musicEnabled}
                     onClick={toggleMusic}
-                    className={`h-5 w-5 rounded-md border ${
+                    className={`h-5 w-5 rounded-md ring-1 ring-inset ${
                       musicEnabled
-                        ? "border-cyan-400 bg-cyan-400"
-                        : "border-white/20"
+                        ? "bg-cyan-400 ring-cyan-400"
+                        : "bg-white/[0.03] ring-white/30"
                     }`}
                   />
                 </div>

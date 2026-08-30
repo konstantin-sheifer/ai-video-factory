@@ -50,6 +50,8 @@ test("Studio exposes volume only when music is enabled and preserves preview sep
   assert.match(studio, /musicEnabled \? \(/);
   assert.match(studio, /aria-label="Background music volume"/);
   assert.match(studio, /aria-pressed=\{musicEnabled\}/);
+  assert.match(studio, /ring-white\/30/);
+  assert.match(studio, /bg-cyan-400 ring-cyan-400/);
   assert.match(studio, /backgroundMusicVolume: musicVolume/g);
   assert.match(studio, /settingsJson/);
   assert.match(studio, /persistBackgroundMusicSettings/);
