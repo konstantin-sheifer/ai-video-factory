@@ -61,9 +61,11 @@ type PlatformApiItem = {
 };
 
 type StarterConcept = {
+  id?: string;
   title: string;
   hook: string;
   visual: string;
+  createdAt?: string;
 };
 
 const CHANNELS_KEY = "ai-video-factory-content-channels";
@@ -295,7 +297,7 @@ export default function SchedulerPage() {
 
   const [channels, setChannels] = useState<ContentChannel[]>([]);
   const [contentQueue, setContentQueue] = useState<QueueItem[]>([]);
-  const [availablePlatforms, setAvailablePlatforms] = useState<PlatformId[]>([]);
+  const [, setAvailablePlatforms] = useState<PlatformId[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
 
   const [channelName, setChannelName] = useState("");
@@ -309,19 +311,51 @@ export default function SchedulerPage() {
 
   const [queueIdea, setQueueIdea] = useState("");
   const [message, setMessage] = useState("");
+  const [queueError, setQueueError] = useState("");
   const [isGeneratingQueue, setIsGeneratingQueue] = useState(false);
 
   useEffect(() => {
-    const storedChannels = readStorage<ContentChannel[]>(CHANNELS_KEY, []);
-    const storedQueue = readStorage<QueueItem[]>(QUEUE_KEY, []);
-    const normalizedChannels = storedChannels.map(normalizeChannel);
+    async function initializeScheduler() {
+      const storedChannels = readStorage<ContentChannel[]>(CHANNELS_KEY, []);
+      const storedQueue = readStorage<QueueItem[]>(QUEUE_KEY, []);
+      const normalizedChannels = storedChannels.map(normalizeChannel);
+      let durableQueue: QueueItem[] = [];
 
-    setChannels(normalizedChannels);
-    setContentQueue(storedQueue);
-    setSelectedChannelId(normalizedChannels[0]?.id || null);
-    writeStorage(CHANNELS_KEY, normalizedChannels);
+      try {
+        const [queueResponse, platformResponse] = await Promise.all([
+          fetch("/api/channels/generate-queue", { cache: "no-store" }),
+          fetch("/api/platforms", { cache: "no-store" }),
+        ]);
+        if (queueResponse.ok) {
+          const data = await queueResponse.json();
+          durableQueue = Array.isArray(data.concepts)
+            ? data.concepts.map((item: StarterConcept & { channelId: string; channelName: string; status: QueueStatus }) => ({
+                id: String(item.id),
+                channelId: item.channelId,
+                channelName: item.channelName,
+                idea: formatConcept(item),
+                status: item.status,
+                createdAt: item.createdAt || getTodayDate(),
+              }))
+            : [];
+        }
+        if (platformResponse.ok) {
+          const platforms = (await platformResponse.json()) as PlatformApiItem[];
+          setAvailablePlatforms(Array.isArray(platforms) ? platforms.filter((item) => item.connected).map((item) => item.id) : []);
+        }
+      } catch {
+        // Local data remains available when staging dependencies are temporarily unavailable.
+      }
 
-    loadPlatforms();
+      const mergedQueue = mergeQueueItems(durableQueue, storedQueue);
+      setChannels(normalizedChannels);
+      setContentQueue(mergedQueue);
+      setSelectedChannelId(normalizedChannels[0]?.id || null);
+      writeStorage(CHANNELS_KEY, normalizedChannels);
+      writeStorage(QUEUE_KEY, mergedQueue);
+    }
+
+    void initializeScheduler();
   }, []);
 
   const selectedChannel = useMemo(() => {
@@ -334,17 +368,6 @@ export default function SchedulerPage() {
   }, [contentQueue, selectedChannel]);
 
   const generatedCount = selectedQueue.filter((item) => item.status === "generated").length;
-
-  async function loadPlatforms() {
-    try {
-      const response = await fetch("/api/platforms", { cache: "no-store" });
-      if (!response.ok) return setAvailablePlatforms([]);
-      const data = (await response.json()) as PlatformApiItem[];
-      setAvailablePlatforms(Array.isArray(data) ? data.filter((p) => p.connected).map((p) => p.id) : []);
-    } catch {
-      setAvailablePlatforms([]);
-    }
-  }
 
   function saveChannel() {
     const name = channelName.trim();
@@ -424,6 +447,7 @@ export default function SchedulerPage() {
     }
 
     setIsGeneratingQueue(true);
+    setQueueError("");
     setMessage(`Generating AI ideas for ${selectedChannel.name}...`);
 
     try {
@@ -433,16 +457,18 @@ export default function SchedulerPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          channelId: selectedChannel.id,
           channelName: selectedChannel.name,
           category: selectedChannel.category,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to generate queue.");
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || "Failed to generate queue.");
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as { ideas?: StarterConcept[] };
       const ideas = Array.isArray(data.ideas) ? data.ideas : [];
 
       if (!ideas.length) {
@@ -450,7 +476,7 @@ export default function SchedulerPage() {
       }
 
       const concepts = ideas.map((concept: StarterConcept) => ({
-        id: crypto.randomUUID(),
+        id: concept.id || crypto.randomUUID(),
         channelId: selectedChannel.id,
         channelName: selectedChannel.name,
         idea: formatConcept({
@@ -459,11 +485,12 @@ export default function SchedulerPage() {
           visual: String(concept.visual || ""),
         }),
         status: "idea" as QueueStatus,
-        createdAt: getTodayDate(),
+        createdAt: concept.createdAt || getTodayDate(),
       }));
 
       setContentQueue((currentQueue) => {
-        const nextQueue = [...concepts, ...currentQueue];
+        const conceptIds = new Set(concepts.map((concept) => concept.id));
+        const nextQueue = [...concepts, ...currentQueue.filter((item) => !conceptIds.has(item.id))];
 
         writeStorage(QUEUE_KEY, nextQueue);
 
@@ -473,7 +500,9 @@ export default function SchedulerPage() {
       setMessage(`${concepts.length} AI ideas added to ${selectedChannel.name}.`);
     } catch (error) {
       console.error(error);
-      setMessage("AI queue generation failed. Check OpenAI API key or server logs.");
+      const controlledMessage = error instanceof Error ? error.message : "Failed to generate queue.";
+      setQueueError(controlledMessage);
+      setMessage(`AI queue generation failed: ${controlledMessage}`);
     } finally {
       setIsGeneratingQueue(false);
     }
@@ -654,6 +683,8 @@ export default function SchedulerPage() {
             </button>
           </div>
 
+          {queueError ? <p role="alert" className="mt-4 rounded-2xl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-100">{queueError}</p> : null}
+
           <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_180px]">
             <input value={queueIdea} onChange={(event) => setQueueIdea(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addQueueIdea(); }} disabled={!selectedChannel} className={fieldClassName} />
             <button onClick={addQueueIdea} disabled={!selectedChannel} className="h-12 rounded-2xl bg-gradient-to-r from-violet-600 via-blue-500 to-cyan-400 px-6 text-sm font-black text-white shadow-[0_0_34px_rgba(0,212,255,0.22)] disabled:cursor-not-allowed disabled:opacity-40" type="button">Add Concept</button>
@@ -733,3 +764,9 @@ function getTodayDate() { return new Date().toISOString().slice(0, 10); }
 function capitalizeFirst(text: string) { return text ? text.charAt(0).toUpperCase() + text.slice(1) : text; }
 function readStorage<T>(key: string, fallback: T): T { if (typeof window === "undefined") return fallback; try { const stored = window.localStorage.getItem(key); return stored ? (JSON.parse(stored) as T) : fallback; } catch { return fallback; } }
 function writeStorage<T>(key: string, value: T) { if (typeof window === "undefined") return; window.localStorage.setItem(key, JSON.stringify(value)); }
+
+function mergeQueueItems(primary: QueueItem[], secondary: QueueItem[]) {
+  const merged = new Map<string, QueueItem>();
+  for (const item of [...primary, ...secondary]) merged.set(item.id, item);
+  return [...merged.values()];
+}

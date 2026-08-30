@@ -96,8 +96,39 @@ model User {
   generations    Generation[]
   generationJobs GenerationJob[]
   mediaAssets    MediaAsset[]
+  channels       Channel[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+}
+
+model Channel {
+  id        String           @id
+  userId    String
+  name      String
+  category  String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concepts  ChannelConcept[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model ChannelConcept {
+  id          String   @id @default(cuid())
+  channelId   String
+  title       String
+  hook        String   @db.Text
+  script      String   @db.Text
+  visual      String   @db.Text
+  fingerprint String
+  status      String   @default("idea")
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([channelId, fingerprint])
+  @@index([channelId, createdAt])
 }
 
 model Project {

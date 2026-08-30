@@ -5,8 +5,20 @@ import {
   AppAuthenticationError,
   requireAppUser,
 } from "@/lib/auth/require-app-user";
+import {
+  getMockStarterConcepts,
+  shouldUseMockStarterQueue,
+  type StarterConcept,
+} from "@/lib/channels/starter-concepts";
+import {
+  ensureChannelForUser,
+  getChannelConceptsForUser,
+  getChannelQueueByUser,
+  saveStarterConceptsForUser,
+} from "@/lib/storage/channel-queue";
 
 const RequestSchema = z.object({
+  channelId: z.string().min(1),
   channelName: z.string().min(1),
   category: z.string().min(1),
 });
@@ -18,99 +30,136 @@ const IdeaSchema = z.object({
   visual: z.string(),
 });
 
-const ResponseSchema = z.object({
-  ideas: z.array(IdeaSchema).min(1).max(10),
-});
+const ResponseSchema = z.object({ ideas: z.array(IdeaSchema).min(1).max(10) });
+
+export async function GET() {
+  try {
+    const { internalUserId } = await requireAppUser();
+    const concepts = await getChannelQueueByUser(internalUserId);
+
+    return NextResponse.json({
+      concepts: concepts.map((item) => ({
+        id: item.id,
+        channelId: item.channelId,
+        channelName: item.channel.name,
+        title: item.title,
+        hook: item.hook,
+        visual: item.visual,
+        status: item.status,
+        createdAt: item.createdAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+}
 
 export async function POST(request: Request) {
   try {
-    await requireAppUser();
-
-    const body = await request.json();
-    const parsed = RequestSchema.safeParse(body);
+    const { internalUserId } = await requireAppUser();
+    const parsed = RequestSchema.safeParse(await request.json());
 
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
 
-    const { channelName, category } = parsed.data;
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+    const { channelId, channelName, category } = parsed.data;
+    const channel = await ensureChannelForUser({
+      id: channelId,
+      userId: internalUserId,
+      name: channelName,
+      category,
     });
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-5-mini",
-      messages: [
-        {
-          role: "system",
-          content: `
-You are an expert short-form video strategist for TikTok, YouTube Shorts, and Instagram Reels.
-
-Return ONLY valid JSON in this exact shape:
-{
-  "ideas": [
-    {
-      "title": "string",
-      "hook": "string",
-      "script": "string",
-      "visual": "string"
-    }
-  ]
-}
-
-Generate exactly 10 ideas.
-
-Rules:
-- Each title must be specific, not generic.
-- Each hook must be short and curiosity-driven.
-- Each script must be ready for a 20-45 second voiceover.
-- Each script must be 4-7 short lines.
-- Each visual must be a detailed vertical 9:16 video prompt.
-- Avoid generic phrases like "a hidden detail", "this topic", "a surprising fact".
-- Make every idea feel like a real viral short.
-`,
-        },
-        {
-          role: "user",
-          content: `
-Channel Name: ${channelName}
-Content Category: ${category}
-
-Create 10 highly viral short-form video concepts for this channel.
-`,
-        },
-      ],
-      response_format: { type: "json_object" },
-    });
-
-    const content = completion.choices[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("No OpenAI response content.");
-    }
-
-    const json = JSON.parse(content);
-    const parsedIdeas = ResponseSchema.safeParse(json);
-
-    if (!parsedIdeas.success) {
-      console.error(parsedIdeas.error);
-      throw new Error("OpenAI returned invalid queue format.");
-    }
-
-    return NextResponse.json(parsedIdeas.data);
-  } catch (error) {
-    if (error instanceof AppAuthenticationError) {
+    if (channel.status === "forbidden") {
       return NextResponse.json(
-        { error: error.message },
-        { status: error.status }
+        { error: "You do not have permission to modify this channel." },
+        { status: 403 }
       );
     }
 
-    console.error(error);
-
-    return NextResponse.json(
-      { error: "Failed to generate queue." },
-      { status: 500 }
+    const mock = shouldUseMockStarterQueue(process.env);
+    const existingConcepts = await getChannelConceptsForUser(
+      channelId,
+      internalUserId
     );
+    if (existingConcepts.length) {
+      return createQueueResponse(existingConcepts, mock);
+    }
+
+    const ideas = mock
+      ? getMockStarterConcepts(category)
+      : await generateLiveConcepts(channelName, category);
+    const concepts = await saveStarterConceptsForUser(
+      channelId,
+      internalUserId,
+      ideas
+    );
+
+    if (!concepts) {
+      return NextResponse.json(
+        { error: "You do not have permission to modify this channel." },
+        { status: 403 }
+      );
+    }
+
+    return createQueueResponse(concepts, mock);
+  } catch (error) {
+    return handleError(error);
   }
+}
+
+function createQueueResponse(
+  concepts: Array<StarterConcept & { id: string; createdAt: Date }>,
+  mock: boolean
+) {
+  return NextResponse.json({
+    ideas: concepts.map(({ id, title, hook, script, visual, createdAt }) => ({
+      id,
+      title,
+      hook,
+      script,
+      visual,
+      createdAt: createdAt.toISOString(),
+    })),
+    mock,
+  });
+}
+
+async function generateLiveConcepts(
+  channelName: string,
+  category: string
+): Promise<StarterConcept[]> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const completion = await openai.chat.completions.create({
+    model: "gpt-5-mini",
+    messages: [
+      {
+        role: "system",
+        content: `You are an expert short-form video strategist. Return only JSON with an ideas array containing exactly 10 objects with title, hook, script, and visual string fields. Make every idea specific, coherent, family-friendly, and suitable for a cinematic vertical 9:16 video.`,
+      },
+      {
+        role: "user",
+        content: `Channel Name: ${channelName}\nContent Category: ${category}\nCreate 10 highly viral short-form video concepts.`,
+      },
+    ],
+    response_format: { type: "json_object" },
+  });
+  const content = completion.choices[0]?.message?.content;
+  const parsed = content ? ResponseSchema.safeParse(JSON.parse(content)) : null;
+
+  if (!parsed?.success) throw new Error("Invalid provider response.");
+  return parsed.data.ideas;
+}
+
+function handleError(error: unknown) {
+  if (error instanceof AppAuthenticationError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+
+  console.error("Channel queue generation failed.", error);
+  return NextResponse.json(
+    { error: "Failed to generate queue." },
+    { status: 500 }
+  );
 }
