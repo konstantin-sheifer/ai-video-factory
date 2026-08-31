@@ -2,6 +2,7 @@ services:
   - type: web
     name: aivf-web
     runtime: node
+    region: oregon
     plan: free
     buildCommand: npm ci && npm run prisma:generate && npm run prisma:migrate:deploy && npm run build
     startCommand: npm run start
@@ -31,6 +32,11 @@ services:
         value: mock
       - key: DATABASE_URL
         sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: aivf-queue
+          property: connectionString
       - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
         sync: false
       - key: CLERK_SECRET_KEY
@@ -46,7 +52,45 @@ services:
 
   - type: keyvalue
     name: aivf-queue
+    region: oregon
     plan: free
     ipAllowList: []
     maxmemoryPolicy: noeviction
     persistenceMode: off
+
+  - type: worker
+    name: aivf-worker
+    runtime: node
+    region: oregon
+    plan: 0.5c-512mb
+    buildCommand: npm ci && npm run prisma:generate
+    startCommand: npm run worker:start
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: staging
+      - key: QUEUE_ENABLED
+        value: "true"
+      - key: QUEUE_NAME
+        value: ai-video-factory-generation
+      - key: QUEUE_PREFIX
+        value: aivf
+      - key: QUEUE_WORKER_CONCURRENCY
+        value: "2"
+      - key: QUEUE_LEASE_DURATION_MS
+        value: "60000"
+      - key: QUEUE_HEARTBEAT_INTERVAL_MS
+        value: "15000"
+      - key: QUEUE_RECOVERY_INTERVAL_MS
+        value: "30000"
+      - key: QUEUE_RECOVERY_BATCH_SIZE
+        value: "50"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: aivf-queue
+          property: connectionString

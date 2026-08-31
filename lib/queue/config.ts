@@ -1,6 +1,7 @@
 import "server-only";
 
 import { QueueValidationError } from "./errors";
+import { validateRedisUrl } from "./redis-connection";
 
 export type QueueConfiguration = {
   enabled: boolean;
@@ -10,6 +11,8 @@ export type QueueConfiguration = {
   leaseDurationMs: number;
   heartbeatIntervalMs: number;
   workerConcurrency: number;
+  recoveryIntervalMs: number;
+  recoveryBatchSize: number;
   redisUrl?: string;
 };
 
@@ -38,6 +41,20 @@ export function loadQueueConfiguration(
     50,
     "QUEUE_WORKER_CONCURRENCY"
   );
+  const recoveryIntervalMs = parseInteger(
+    environment.QUEUE_RECOVERY_INTERVAL_MS,
+    30_000,
+    5_000,
+    15 * 60_000,
+    "QUEUE_RECOVERY_INTERVAL_MS"
+  );
+  const recoveryBatchSize = parseInteger(
+    environment.QUEUE_RECOVERY_BATCH_SIZE,
+    50,
+    1,
+    500,
+    "QUEUE_RECOVERY_BATCH_SIZE"
+  );
   const redisUrl = environment.REDIS_URL?.trim();
 
   if (enabled && !redisUrl) {
@@ -45,6 +62,7 @@ export function loadQueueConfiguration(
       "REDIS_URL is required when the durable queue is enabled."
     );
   }
+  if (redisUrl) validateRedisUrl(redisUrl);
 
   return {
     enabled,
@@ -60,6 +78,8 @@ export function loadQueueConfiguration(
     leaseDurationMs,
     heartbeatIntervalMs,
     workerConcurrency,
+    recoveryIntervalMs,
+    recoveryBatchSize,
     redisUrl: redisUrl || undefined,
   };
 }

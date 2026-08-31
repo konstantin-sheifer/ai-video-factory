@@ -6,6 +6,13 @@ const manifest = await readFile(new URL("../render.yaml", import.meta.url), "utf
 assert.match(manifest, /type: web\s+name: aivf-web/);
 assert.match(manifest, /healthCheckPath: \/api\/health\/ready/);
 assert.match(manifest, /type: keyvalue\s+name: aivf-queue/);
+assert.match(manifest, /type: worker\s+name: aivf-worker/);
+assert.match(manifest, /plan: 0\.5c-512mb/);
+assert.match(manifest, /startCommand: npm run worker:start/);
+assert.match(
+  manifest,
+  /key: REDIS_URL\s+fromService:\s+type: keyvalue\s+name: aivf-queue\s+property: connectionString/
+);
 assert.match(manifest, /QUEUE_ENABLED\s+value: "false"/);
 assert.match(manifest, /PROJECT_STORAGE_PROVIDER\s+value: prisma/);
 assert.match(manifest, /AI_BRAIN_LIVE\s+value: "false"/);
@@ -30,7 +37,5 @@ assert.match(
   manifest,
   /buildCommand: npm ci && npm run prisma:generate && npm run prisma:migrate:deploy && npm run build/
 );
-assert.doesNotMatch(manifest, /type: worker/);
-assert.doesNotMatch(manifest, /worker:start/);
 
 console.log("Render deployment contract is structurally valid.");
