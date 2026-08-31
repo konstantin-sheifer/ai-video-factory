@@ -47,6 +47,18 @@ No Clerk or provider secret is required by this worker milestone.
 
 Do not enable paid providers during this procedure.
 
+The worker contains a strictly opt-in verification harness. It is inert unless
+`QUEUE_VERIFICATION_RUN_ID` is a non-empty value. The value is hashed before it
+is persisted or referenced; the raw value is never logged. Each value claims one
+durable PostgreSQL generation marker. A completed, failed, or interrupted marker
+suppresses later execution with the same value, so use a new unique value for a
+new run.
+
+The harness creates only isolated `ExecutionMode.mock` planning jobs owned by the
+internal `queue-verification-user` fixture. Its only handler is deterministic
+metadata preparation with provider `internal-verification`; it imports and calls
+no AI, video, voice, render, publishing, or media provider.
+
 1. Obtain owner approval for the billable `aivf-worker` resource and sync the Blueprint.
 2. Set the worker `DATABASE_URL` to the same Neon database used by `aivf-web`.
 3. Confirm worker startup emits `worker.ready` and no credential-bearing logs.
@@ -62,6 +74,45 @@ Do not enable paid providers during this procedure.
 13. Remove a waiting BullMQ delivery or restart the non-persistent Key Value instance; verify the bounded recovery scan restores delivery from the queued PostgreSQL row.
 14. Send `SIGTERM` during the deterministic delay; verify new jobs stop, the handler aborts, no terminal write occurs after lease loss, connections close, and the process exits within 30 seconds.
 15. Keep `aivf-web` at `QUEUE_ENABLED=false` until all checks pass. Then enable web publishing in a separate controlled activation milestone.
+
+### Exact Render activation sequence
+
+1. Deploy the commit containing the harness while leaving
+   `QUEUE_VERIFICATION_RUN_ID` absent. Confirm the worker emits its normal
+   `worker.ready` event and no `verification.started` event.
+2. In the Render Dashboard, open `aivf-worker`, then **Environment**.
+3. Add `QUEUE_VERIFICATION_RUN_ID` with a new unique, non-secret value such as a
+   timestamped verification label. Do not change `DATABASE_URL`, `REDIS_URL`,
+   provider variables, or the web service.
+4. Save the environment change and deploy the worker when Render prompts.
+5. Open the new worker instance logs. Confirm the automatic run emits, in order
+   as scenarios finish:
+   - `verification.started`
+   - `verification.heartbeat.passed`
+   - `verification.enqueue.passed`
+   - `verification.duplicate.passed`
+   - `verification.retry.passed`
+   - `verification.cancellation.passed`
+   - `verification.missing_delivery_recovery.passed`
+   - `verification.expired_lease_recovery.passed`
+   - `verification.shutdown_fixture.ready`
+   - `verification.completed`
+6. For the manual graceful-shutdown check, act while the 90-second shutdown
+   fixture is running: open `aivf-worker` **Manual Deploy**, choose **Deploy
+   latest commit**, and confirm. Do not restart Key Value and do not change any
+   environment value.
+7. In the old instance logs, confirm `worker.shutdown_requested` followed by
+   `worker.stopped`. In the replacement instance, confirm
+   `verification.run_suppressed`, then allow the 60-second lease to expire and
+   confirm recovery logs show the fixture is recovered and eventually completed.
+8. Return to `aivf-worker` **Environment**, remove
+   `QUEUE_VERIFICATION_RUN_ID`, save, and deploy once more.
+9. Confirm the clean worker emits `worker.ready` with no verification events.
+10. Keep `aivf-web` at `QUEUE_ENABLED=false` until Milestone 2.3.
+
+If `verification.failed` appears, retain the PostgreSQL fixture for diagnosis,
+remove the variable, and do not reuse that run ID. No scenario automatically
+restarts a Render service or modifies provider configuration.
 
 ## Rollback
 

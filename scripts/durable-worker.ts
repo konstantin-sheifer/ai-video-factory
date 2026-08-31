@@ -14,6 +14,7 @@ import { DurableJobRecovery } from "@/lib/queue/durable-job-recovery";
 import { DurableWorkerExecutor } from "@/lib/queue/durable-worker-executor";
 import { DurableWorkerRuntime } from "@/lib/queue/durable-worker-runtime";
 import { metadataPreparationHandler } from "@/lib/queue/handlers/metadata-preparation-handler";
+import { runRenderQueueVerification } from "@/lib/queue/render-verification-harness";
 import { structuredQueueLogger } from "@/lib/queue/structured-log";
 import { GenerationJobService } from "@/lib/services/generation-job-service";
 
@@ -63,6 +64,15 @@ async function main() {
 
   try {
     await runtime.start();
+    await runRenderQueueVerification({
+      database: prisma,
+      lifecycle,
+      queue,
+      dispatcher,
+      recovery,
+      configuration,
+      logger: structuredQueueLogger,
+    });
   } catch (error) {
     await runtime.shutdown().catch(() => undefined);
     throw error;

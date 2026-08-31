@@ -8,7 +8,10 @@ import {
 type HandlerInput = {
   simulateFailure?: boolean;
   delayMs?: number;
+  failUntilAttempt?: number;
 };
+
+const VERIFICATION_PROVIDER = "internal-verification";
 
 /**
  * Deterministic, no-cost proof handler. It performs no provider or network work.
@@ -20,11 +23,22 @@ export const metadataPreparationHandler: JobHandler = async ({
 }) => {
   const input = readInput(job.inputJson);
 
+  const verificationJob = job.provider === VERIFICATION_PROVIDER;
+  const maximumDelayMs = verificationJob ? 90_000 : 2_000;
+
   await checkpoint(20);
-  await wait(Math.min(Math.max(input.delayMs ?? 0, 0), 2_000), signal);
+  await wait(
+    Math.min(Math.max(input.delayMs ?? 0, 0), maximumDelayMs),
+    signal
+  );
   await checkpoint(60);
 
-  if (input.simulateFailure) {
+  if (
+    input.simulateFailure ||
+    (verificationJob &&
+      input.failUntilAttempt !== undefined &&
+      job.attemptCount <= input.failUntilAttempt)
+  ) {
     throw new JobHandlerFailure({
       category: "verification",
       code: "simulated_failure",
@@ -58,6 +72,10 @@ function readInput(value: Prisma.JsonValue | null): HandlerInput {
         ? value.simulateFailure
         : undefined,
     delayMs: typeof value.delayMs === "number" ? value.delayMs : undefined,
+    failUntilAttempt:
+      typeof value.failUntilAttempt === "number"
+        ? value.failUntilAttempt
+        : undefined,
   };
 }
 
