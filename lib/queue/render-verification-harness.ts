@@ -25,6 +25,7 @@ const VERIFICATION_PROVIDER = "internal-verification";
 const POLL_INTERVAL_MS = 250;
 const SCENARIO_TIMEOUT_MS = 120_000;
 const RETRY_DELIVERY_GRACE_MS = 5_000;
+const RETRY_OPERATION_TIMEOUT_MS = 15_000;
 
 export const QUEUE_VERIFICATION_EVENTS = [
   "verification.started",
@@ -242,9 +243,32 @@ async function verifyDelayedRetry(context: ScenarioContext) {
   });
 
   if (failed.nextRetryAt) {
+    context.logger({
+      event: "verification.retry.wait_until_started",
+      jobId: failed.id,
+      generationId: failed.generationId,
+      status: failed.status,
+      retryAt: failed.nextRetryAt.toISOString(),
+      outcome: "started",
+    });
     await waitUntil(failed.nextRetryAt);
+    context.logger({
+      event: "verification.retry.wait_until_completed",
+      jobId: failed.id,
+      generationId: failed.generationId,
+      status: failed.status,
+      retryAt: failed.nextRetryAt.toISOString(),
+      outcome: "completed",
+    });
   }
 
+  context.logger({
+    event: "verification.retry.grace_wait_started",
+    jobId: failed.id,
+    generationId: failed.generationId,
+    status: failed.status,
+    outcome: "started",
+  });
   const delivered = await waitForJobOrTimeout(
     context.database,
     failed.id,
@@ -257,13 +281,37 @@ async function verifyDelayedRetry(context: ScenarioContext) {
     (await context.database.generationJob.findUniqueOrThrow({
       where: { id: failed.id },
     }));
-  if (current.status === GenerationJobStatus.failed) {
+  context.logger({
+    event: "verification.retry.grace_wait_completed",
+    jobId: current.id,
+    generationId: current.generationId,
+    status: current.status,
+    outcome: delivered ? "state_changed" : "still_waiting",
+  });
+
+  if (requiresRetryResubmission(current)) {
     const retryReferenceId = await cancelStaleRetryDelivery(context, current);
-    const dispatch = await context.dispatcher.dispatch(
-      current.id,
-      current.userId,
-      new Date()
-    );
+    context.logger({
+      event: "verification.retry.resubmit_started",
+      jobId: current.id,
+      generationId: current.generationId,
+      status: current.status,
+      outcome: "started",
+    });
+    const dispatch = await withTimeout(
+      context.dispatcher.dispatch(current.id, current.userId, new Date()),
+      RETRY_OPERATION_TIMEOUT_MS,
+      "dispatcher retry resubmission timed out"
+    ).catch((error: unknown) => {
+      context.logger({
+        event: "verification.retry.resubmit_failed",
+        jobId: current.id,
+        generationId: current.generationId,
+        status: current.status,
+        outcome: "failed",
+      });
+      throw error;
+    });
     context.logger({
       event: "verification.retry.recovery_submitted",
       jobId: dispatch.job.id,
@@ -298,6 +346,14 @@ async function verifyDelayedRetry(context: ScenarioContext) {
     generationId: job.generationId,
     outcome: "passed",
   });
+}
+
+function requiresRetryResubmission(job: GenerationJob): boolean {
+  return (
+    job.status === GenerationJobStatus.failed ||
+    job.status === GenerationJobStatus.retry_scheduled ||
+    job.status === GenerationJobStatus.queued
+  );
 }
 
 async function verifyCancellation(context: ScenarioContext) {
@@ -538,7 +594,37 @@ async function cancelStaleRetryDelivery(
   job: GenerationJob
 ): Promise<string | null> {
   const retryReferenceId = createRetryReferenceId(job);
-  const removed = await context.queue.cancel(retryReferenceId);
+  context.logger({
+    event: "verification.retry.stale_delivery_cancel_started",
+    jobId: job.id,
+    generationId: job.generationId,
+    queueReferenceId: retryReferenceId,
+    status: job.status,
+    outcome: "started",
+  });
+  const removed = await withTimeout(
+    context.queue.cancel(retryReferenceId),
+    RETRY_OPERATION_TIMEOUT_MS,
+    "stale retry delivery cancellation timed out"
+  ).catch((error: unknown) => {
+    context.logger({
+      event: "verification.retry.stale_delivery_cancel_failed",
+      jobId: job.id,
+      generationId: job.generationId,
+      queueReferenceId: retryReferenceId,
+      status: job.status,
+      outcome: "failed",
+    });
+    throw error;
+  });
+  context.logger({
+    event: "verification.retry.stale_delivery_cancel_completed",
+    jobId: job.id,
+    generationId: job.generationId,
+    queueReferenceId: retryReferenceId,
+    status: job.status,
+    outcome: removed ? "removed" : "not_found",
+  });
   return removed ? retryReferenceId : null;
 }
 
@@ -557,4 +643,19 @@ async function waitUntil(value: Date) {
   if (delayMs > 0) {
     await wait(delayMs);
   }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() =>
+    clearTimeout(timeout)
+  );
 }
