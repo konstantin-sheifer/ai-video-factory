@@ -34,6 +34,8 @@ export type DurableWorkerOptions = {
   defaultRetryDelayMs?: number;
 };
 
+const MAX_EARLY_RETRY_WAIT_MS = 5_000;
+
 export class DurableWorkerExecutor {
   private readonly activeExecutions = new Map<string, AbortController>();
   private shuttingDown = false;
@@ -129,7 +131,19 @@ export class DurableWorkerExecutor {
 
   private async prepareForDelivery(job: DurableJob): Promise<DurableJob> {
     if (job.status === GenerationJobStatus.failed) {
-      const retry = this.lifecycle.getRetryBookkeeping(job);
+      let retry = this.lifecycle.getRetryBookkeeping(job);
+      if (
+        !retry.eligible &&
+        retry.nextRetryAt &&
+        job.attemptCount < job.maxAttempts
+      ) {
+        const waitMs = retry.nextRetryAt.getTime() - Date.now();
+        if (waitMs > 0 && waitMs <= MAX_EARLY_RETRY_WAIT_MS) {
+          await wait(waitMs);
+          job = await this.lifecycle.loadJobForWorker(job.id);
+          retry = this.lifecycle.getRetryBookkeeping(job);
+        }
+      }
       if (!retry.eligible) {
         return job;
       }
@@ -370,6 +384,10 @@ export class DurableWorkerExecutor {
       ...fields,
     });
   }
+}
+
+function wait(durationMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
 function normalizeHandlerFailure(error: unknown): {

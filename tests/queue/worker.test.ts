@@ -70,6 +70,23 @@ test("due retry delivery preserves job identity and completes next attempt", asy
   assert.equal(lifecycle.completions, 1);
 });
 
+test("early retry delivery waits until the durable retry timestamp", async () => {
+  const lifecycle = new FakeLifecycle(
+    makeJob({
+      status: GenerationJobStatus.failed,
+      attemptCount: 1,
+      maxAttempts: 3,
+      nextRetryAt: new Date(Date.now() + 25),
+    })
+  );
+  const { worker } = createWorker(lifecycle);
+
+  const result = await worker.process("job-1");
+  assert.equal(result.outcome, "completed");
+  assert.equal(lifecycle.job.attemptCount, 2);
+  assert.equal(lifecycle.starts, 1);
+});
+
 test("duplicate delivery does not start a second execution", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
