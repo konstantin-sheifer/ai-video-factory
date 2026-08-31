@@ -24,6 +24,7 @@ const VERIFICATION_PROJECT_ID = "queue-verification-project";
 const VERIFICATION_PROVIDER = "internal-verification";
 const POLL_INTERVAL_MS = 250;
 const SCENARIO_TIMEOUT_MS = 120_000;
+const RETRY_DELIVERY_GRACE_MS = 5_000;
 
 export const QUEUE_VERIFICATION_EVENTS = [
   "verification.started",
@@ -225,12 +226,66 @@ async function verifyDelayedRetry(context: ScenarioContext) {
     2
   );
   await context.dispatcher.dispatch(job.id, job.userId);
-  await waitForJob(
+  const failed = await waitForJob(
     context.database,
     job.id,
     (value) =>
       value.status === GenerationJobStatus.failed && value.nextRetryAt !== null
   );
+  context.logger({
+    event: "verification.retry.failed_state",
+    jobId: failed.id,
+    generationId: failed.generationId,
+    status: failed.status,
+    retryAt: failed.nextRetryAt?.toISOString(),
+    outcome: "observed",
+  });
+
+  if (failed.nextRetryAt) {
+    await waitUntil(failed.nextRetryAt);
+  }
+
+  const delivered = await waitForJobOrTimeout(
+    context.database,
+    failed.id,
+    (value) => value.status !== GenerationJobStatus.failed,
+    RETRY_DELIVERY_GRACE_MS
+  );
+
+  const current =
+    delivered ??
+    (await context.database.generationJob.findUniqueOrThrow({
+      where: { id: failed.id },
+    }));
+  if (current.status === GenerationJobStatus.failed) {
+    const retryReferenceId = await cancelStaleRetryDelivery(context, current);
+    const dispatch = await context.dispatcher.dispatch(
+      current.id,
+      current.userId,
+      new Date()
+    );
+    context.logger({
+      event: "verification.retry.recovery_submitted",
+      jobId: dispatch.job.id,
+      generationId: dispatch.job.generationId,
+      queueReferenceId: dispatch.queueReference.id,
+      status: dispatch.job.status,
+      outcome: dispatch.queueReference.deduplicated
+        ? "deduplicated"
+        : "enqueued",
+    });
+    if (retryReferenceId) {
+      context.logger({
+        event: "verification.retry.stale_delivery_replaced",
+        jobId: current.id,
+        generationId: current.generationId,
+        queueReferenceId: retryReferenceId,
+        status: current.status,
+        outcome: "replaced",
+      });
+    }
+  }
+
   const completed = await waitForStatus(
     context.database,
     job.id,
@@ -461,6 +516,45 @@ function isUniqueConstraintError(
   );
 }
 
+async function waitForJobOrTimeout(
+  database: PrismaClient,
+  jobId: string,
+  predicate: (job: GenerationJob) => boolean,
+  timeoutMs: number
+): Promise<GenerationJob | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const job = await database.generationJob.findUnique({
+      where: { id: jobId },
+    });
+    if (job && predicate(job)) return job;
+    await wait(POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
+async function cancelStaleRetryDelivery(
+  context: ScenarioContext,
+  job: GenerationJob
+): Promise<string | null> {
+  const retryReferenceId = createRetryReferenceId(job);
+  const removed = await context.queue.cancel(retryReferenceId);
+  return removed ? retryReferenceId : null;
+}
+
+function createRetryReferenceId(job: GenerationJob): string {
+  return `delivery-${createHash("sha256")
+    .update(buildAttemptKey(job))
+    .digest("hex")}`;
+}
+
 function wait(durationMs: number) {
   return new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
+async function waitUntil(value: Date) {
+  const delayMs = value.getTime() - Date.now();
+  if (delayMs > 0) {
+    await wait(delayMs);
+  }
 }
