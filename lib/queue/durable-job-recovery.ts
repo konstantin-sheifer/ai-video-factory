@@ -82,6 +82,10 @@ function hasExpiredActiveLease(job: DurableJob, now: Date): boolean {
 function isDispatchable(job: DurableJob, now: Date): boolean {
   return (
     job.status === GenerationJobStatus.queued ||
+    (job.status === GenerationJobStatus.retry_scheduled &&
+      job.nextRetryAt !== null &&
+      job.nextRetryAt.getTime() <= now.getTime() &&
+      job.attemptCount < job.maxAttempts) ||
     (job.status === GenerationJobStatus.failed &&
       job.nextRetryAt !== null &&
       job.nextRetryAt.getTime() <= now.getTime() &&

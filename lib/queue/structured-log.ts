@@ -1,6 +1,7 @@
 export type QueueLogFields = {
   event: string;
   jobId?: string;
+  attemptKey?: string;
   generationId?: string;
   queueReferenceId?: string;
   workerId?: string;

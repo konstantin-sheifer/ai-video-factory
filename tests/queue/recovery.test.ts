@@ -63,3 +63,37 @@ test("recovery deduplicates an executable database job already in queue", async 
   assert.equal(summary.dispatched, 2);
   assert.equal(queue.takeReady(now).length, 1);
 });
+
+test("recovery redispatches a due retry_scheduled job", async () => {
+  const now = new Date();
+  const retryScheduled = makeJob({
+    status: GenerationJobStatus.retry_scheduled,
+    attemptCount: 1,
+    maxAttempts: 3,
+    nextRetryAt: new Date(now.getTime() - 1),
+  });
+  const lifecycle = new FakeLifecycle(retryScheduled);
+  lifecycle.candidates = [retryScheduled];
+  const queue = new InMemoryJobQueue();
+  const dispatcher = new DurableJobDispatcher(
+    lifecycle,
+    queue,
+    silentLogger
+  );
+  const recovery = new DurableJobRecovery(
+    lifecycle,
+    dispatcher,
+    silentLogger
+  );
+
+  const summary = await recovery.reconcile(now, 10);
+  assert.deepEqual(summary, {
+    inspected: 1,
+    recoveredLeases: 0,
+    dispatched: 1,
+    skipped: 0,
+    failed: 0,
+  });
+  assert.equal(lifecycle.job.status, GenerationJobStatus.queued);
+  assert.equal(queue.takeReady(now).length, 1);
+});

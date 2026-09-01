@@ -31,11 +31,19 @@ export class DurableWorkerRuntime {
 
     await this.runRecovery();
     await this.consumer.start(async (delivery) => {
+      this.logger({
+        event: "worker.delivery_received",
+        jobId: delivery.jobId,
+        queueReferenceId: delivery.referenceId,
+        attemptKey: delivery.attemptKey,
+        outcome: "received",
+      });
       const result = await this.executor.process(delivery.jobId);
       this.logger({
         event: "worker.delivery_processed",
         jobId: delivery.jobId,
         queueReferenceId: delivery.referenceId,
+        attemptKey: delivery.attemptKey,
         outcome: result.outcome,
       });
     });

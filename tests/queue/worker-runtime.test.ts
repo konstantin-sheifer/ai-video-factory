@@ -27,6 +27,7 @@ class TestConsumer implements QueueConsumer {
 }
 
 test("runtime processes duplicate delivery safely and closes transport on shutdown", async () => {
+  const events: string[] = [];
   const lifecycle = new FakeLifecycle();
   lifecycle.candidates = [];
   const queue = new InMemoryJobQueue();
@@ -40,7 +41,7 @@ test("runtime processes duplicate delivery safely and closes transport on shutdo
       leaseDurationMs: 1_000,
       heartbeatIntervalMs: 100,
     },
-    silentLogger
+    (fields) => events.push(fields.event)
   );
   const recovery = new DurableJobRecovery(
     lifecycle,
@@ -52,7 +53,7 @@ test("runtime processes duplicate delivery safely and closes transport on shutdo
     executor,
     recovery,
     { recoveryIntervalMs: 60_000, recoveryBatchSize: 10 },
-    silentLogger
+    (fields) => events.push(fields.event)
   );
 
   await runtime.start();
@@ -62,6 +63,10 @@ test("runtime processes duplicate delivery safely and closes transport on shutdo
   ]);
   assert.equal(lifecycle.starts, 1);
   assert.equal(lifecycle.completions, 1);
+  assert.equal(
+    events.filter((event) => event === "worker.delivery_received").length,
+    2
+  );
 
   await runtime.shutdown();
   assert.equal(consumer.closed, true);

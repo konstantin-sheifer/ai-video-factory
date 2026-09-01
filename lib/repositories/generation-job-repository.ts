@@ -155,6 +155,10 @@ export class GenerationJobRepository {
             nextRetryAt: { lte: now },
           },
           {
+            status: "retry_scheduled",
+            nextRetryAt: { lte: now },
+          },
+          {
             status: { in: ["claimed", "running", "waiting_provider"] },
             leaseExpiresAt: { lte: now },
           },
