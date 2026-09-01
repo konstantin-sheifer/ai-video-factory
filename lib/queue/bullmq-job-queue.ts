@@ -25,7 +25,7 @@ import {
 } from "./redis-connection";
 import type { QueueConfiguration } from "./config";
 
-type BullMqJob = Pick<Job<BullMqDeliveryPayload>, "id" | "timestamp" | "delay" | "remove">;
+type BullMqJob = Pick<Job<BullMqDeliveryPayload>, "id" | "timestamp" | "delay">;
 
 export interface BullMqQueuePort {
   add(
@@ -34,6 +34,7 @@ export interface BullMqQueuePort {
     options: JobsOptions
   ): Promise<BullMqJob>;
   getJob(id: string): Promise<BullMqJob | undefined>;
+  remove(id: string): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -95,10 +96,7 @@ export class BullMqJobQueue implements JobQueue {
     }
 
     try {
-      const job = await this.queue.getJob(referenceId);
-      if (!job) return false;
-      await job.remove();
-      return true;
+      return (await this.queue.remove(referenceId)) === 1;
     } catch (error) {
       throw normalizeQueueError(error);
     }

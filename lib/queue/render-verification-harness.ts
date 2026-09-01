@@ -289,7 +289,7 @@ async function verifyDelayedRetry(context: ScenarioContext) {
     outcome: delivered ? "state_changed" : "still_waiting",
   });
 
-  if (requiresRetryResubmission(current)) {
+  if (current.status === GenerationJobStatus.failed) {
     const retryReferenceId = await cancelStaleRetryDelivery(context, current);
     context.logger({
       event: "verification.retry.resubmit_started",
@@ -308,6 +308,7 @@ async function verifyDelayedRetry(context: ScenarioContext) {
         jobId: current.id,
         generationId: current.generationId,
         status: current.status,
+        failureCategory: "queue",
         outcome: "failed",
       });
       throw error;
@@ -346,14 +347,6 @@ async function verifyDelayedRetry(context: ScenarioContext) {
     generationId: job.generationId,
     outcome: "passed",
   });
-}
-
-function requiresRetryResubmission(job: GenerationJob): boolean {
-  return (
-    job.status === GenerationJobStatus.failed ||
-    job.status === GenerationJobStatus.retry_scheduled ||
-    job.status === GenerationJobStatus.queued
-  );
 }
 
 async function verifyCancellation(context: ScenarioContext) {
@@ -613,6 +606,7 @@ async function cancelStaleRetryDelivery(
       generationId: job.generationId,
       queueReferenceId: retryReferenceId,
       status: job.status,
+      failureCategory: "queue",
       outcome: "failed",
     });
     throw error;

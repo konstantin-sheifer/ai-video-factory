@@ -21,6 +21,7 @@ import { verifyRedisConnection } from "../../lib/queue/redis-connection";
 
 class FakeBullQueue implements BullMqQueuePort {
   jobs = new Map<string, FakeBullJob>();
+  lockedJobs = new Set<string>();
   closed = false;
 
   async add(_name: string, data: BullMqDeliveryPayload, options: JobsOptions) {
@@ -40,6 +41,11 @@ class FakeBullQueue implements BullMqQueuePort {
 
   async getJob(id: string) {
     return this.jobs.get(id);
+  }
+
+  async remove(id: string) {
+    if (this.lockedJobs.has(id)) return 0;
+    return this.jobs.delete(id) ? 1 : 0;
   }
 
   async close() {
@@ -94,6 +100,21 @@ test("BullMQ adapter deduplicates the same attempt and supports cancellation", a
   assert.equal(duplicate.deduplicated, true);
   assert.equal(await queue.cancel(first.id), true);
   assert.equal(await queue.cancel(first.id), false);
+});
+
+test("BullMQ adapter treats missing and locked cancellation as idempotent misses", async () => {
+  const port = new FakeBullQueue();
+  const queue = new BullMqJobQueue("generation", port);
+  const delivery = await queue.enqueue({
+    jobId: "job-1",
+    deduplicationKey: "generation-job:job-1:attempt:1",
+  });
+
+  port.lockedJobs.add(delivery.id);
+
+  assert.equal(await queue.cancel(delivery.id), false);
+  assert.equal(await queue.cancel("missing-delivery"), false);
+  assert.ok(port.jobs.has(delivery.id));
 });
 
 test("delivery serialization is versioned, validated, and preserves identity", () => {
