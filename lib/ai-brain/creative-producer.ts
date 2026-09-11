@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   createCreativeBrief,
   type CreativeBrief,
@@ -29,6 +30,7 @@ export type CreativeProducerInput = {
 };
 
 export type CreativeProducerDecision = {
+  provenance: { mode: "mock" | "live"; reason: string };
   originalIdea: string;
   productionIdea: string;
   style: CreativeStyle;
@@ -100,6 +102,10 @@ export async function createCreativeProducerDecision(
 
   const apiKey = process.env.OPENAI_API_KEY;
 
+  if (process.env.AI_BRAIN_LIVE !== "false" && !apiKey) {
+    throw new Error("OPENAI_API_KEY is required for live creative planning.");
+  }
+
   if (!apiKey || process.env.AI_BRAIN_LIVE === "false") {
     return createFallbackDecision({
       rawIdea,
@@ -120,14 +126,9 @@ export async function createCreativeProducerDecision(
 
     return normalizeDecision(decision, rawIdea, duration);
   } catch (error) {
-    console.error("Creative Producer error:", error);
+    console.error("Creative Producer failed.", { errorType: error instanceof Error ? error.name : "unknown" });
 
-    return createFallbackDecision({
-      rawIdea,
-      duration,
-      forceNeedsRevision: rawIdea.length < 20,
-      reason: "Creative Producer failed; using deterministic fallback.",
-    });
+    throw new Error("Creative Producer failed; production is blocked.");
   }
 }
 
@@ -185,7 +186,7 @@ async function callCreativeProducerAgent(input: {
     throw new Error("Creative Producer returned empty content.");
   }
 
-  return JSON.parse(content) as Partial<CreativeProducerDecision>;
+  return CreativeProducerOutputSchema.parse(JSON.parse(content));
 }
 
 function normalizeDecision(
@@ -293,6 +294,7 @@ function normalizeDecision(
 
   return {
     ...decisionBase,
+    provenance: { mode: "live", reason: "Validated Creative Producer response." },
     creativeBrief,
   };
 }
@@ -376,6 +378,7 @@ function createFallbackDecision(input: {
 
   return {
     ...decisionBase,
+    provenance: { mode: "mock", reason: input.reason },
     creativeBrief,
   };
 }
@@ -542,3 +545,22 @@ function includesAny(text: string, values: string[]) {
 function cleanText(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
+
+const nonEmpty = z.string().trim().min(1).max(10000);
+export const CreativeProducerOutputSchema = z.object({
+  productionIdea: nonEmpty,
+  style: z.enum(CREATIVE_STYLES),
+  pacing: z.enum(PACING_PROFILES),
+  beatDensity: z.enum(BEAT_DENSITIES),
+  targetBeatCount: z.number().int().min(3).max(24),
+  logline: nonEmpty, hook: nonEmpty, coreEvent: nonEmpty,
+  escalation: nonEmpty, payoff: nonEmpty, wowReason: nonEmpty,
+  stageChecks: z.array(z.object({
+    id: nonEmpty, label: nonEmpty, passed: z.boolean(), note: z.string(),
+  })).min(1),
+  visualRules: z.object({
+    mustFeelLike: z.array(nonEmpty).min(1),
+    mustAvoid: z.array(nonEmpty).min(1), actionPrinciple: nonEmpty,
+  }),
+  recommendation: z.object({ shouldGenerate: z.boolean(), reason: nonEmpty }),
+});

@@ -1,5 +1,7 @@
 "use client";
 
+import { requireApprovedPackage, generatePackageVideo } from "@/lib/production/client";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -217,6 +219,7 @@ export default function LoadingPage() {
       });
 
       const scriptData = await scriptResponse.json();
+      const productionPackage = requireApprovedPackage(scriptResponse, scriptData);
       const generatedScript = scriptData.script as GeneratedScript;
 
       if (!scriptResponse.ok || !generatedScript) {
@@ -242,20 +245,14 @@ export default function LoadingPage() {
         generatedScript?.hook ||
         savedIdea;
 
-      const videoPrompt = buildVideoPrompt(savedIdea, generatedScript);
+      const videoPrompt = JSON.stringify(productionPackage);
 
       setStage("Generating video");
 
-      const videoResponse = await fetch("/api/video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: videoPrompt }),
-      });
-
-      const videoData = await videoResponse.json();
+      const videoData = await generatePackageVideo(productionPackage);
       const generatedVideoUrl = String(videoData.videoUrl || "").trim();
 
-      if (!videoResponse.ok || !generatedVideoUrl) {
+      if (!generatedVideoUrl) {
         throw new Error("Video generation failed.");
       }
 
@@ -408,7 +405,7 @@ export default function LoadingPage() {
       }, 700);
     } catch (error) {
       console.error("Loading generation error:", error);
-      setErrorMessage("Generation failed. Please try again.");
+      setErrorMessage(error instanceof Error ? error.message : "Generation failed. Please try again.");
       setRenderState("Completed");
     }
   }
@@ -458,33 +455,6 @@ export default function LoadingPage() {
       </section>
     </main>
   );
-}
-
-function buildVideoPrompt(idea: string, script: GeneratedScript | null) {
-  const firstScene = script?.scenes?.[0];
-
-  const autoStyle = script?.autoStyle || "Auto";
-  const visualStyle =
-    script?.visualStyle ||
-    "coherent short-form AI video style inferred from the idea";
-  const mainSubject = script?.mainSubject || idea;
-  const environment = script?.environment || "a setting that matches the idea";
-  const visual = firstScene?.visual || idea;
-
-  const prompt = [
-    "Vertical 9:16 short-form video.",
-    `User idea: ${idea}`,
-    `Auto style: ${autoStyle}.`,
-    `Visual style: ${visualStyle}.`,
-    `Main subject: ${mainSubject}.`,
-    `Environment/background: ${environment}.`,
-    `Scene: ${visual}.`,
-    "Keep the same subject and same environment throughout the entire clip.",
-    "No unrelated background. No random setting changes. No text overlays. No logos. No watermark.",
-    "Smooth camera movement, clear composition, high-quality lighting, strong visual storytelling.",
-  ].join(" ");
-
-  return prompt.length > 950 ? `${prompt.slice(0, 947).trim()}...` : prompt;
 }
 
 function ChromeRunnerDino() {

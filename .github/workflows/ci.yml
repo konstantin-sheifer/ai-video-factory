@@ -19,6 +19,8 @@ jobs:
       CLERK_SECRET_KEY: sk_test_ci_placeholder
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -29,6 +31,7 @@ jobs:
       - run: npx tsc --noEmit
       - name: Lint deployment milestone source
         run: npx eslint proxy.ts lib/health/readiness.ts app/api/health/live/route.ts app/api/health/ready/route.ts tests/health/readiness.test.ts
+      - run: npm run test:production
       - run: npm run test:queue
       - run: npm run test:health
       - run: npm run test:staging

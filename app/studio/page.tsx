@@ -1,5 +1,7 @@
 "use client";
 
+import { requireApprovedPackage, generatePackageVideo } from "@/lib/production/client";
+
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -26,15 +28,6 @@ type GeneratedScript = {
   scenes: Scene[];
   cta: string;
   runwayPrompt?: string;
-};
-
-type VideoBrief = {
-  idea: string;
-  autoStyle: string;
-  visualStyle: string;
-  mainSubject: string;
-  environment: string;
-  sceneVisual: string;
 };
 
 type SubtitleItem = {
@@ -560,6 +553,7 @@ function StudioPageContent() {
       });
 
       const scriptData = await scriptResponse.json();
+      const productionPackage = requireApprovedPackage(scriptResponse, scriptData);
       const generatedScript = scriptData.script as GeneratedScript;
 
       if (!scriptResponse.ok || !generatedScript) {
@@ -590,21 +584,14 @@ function StudioPageContent() {
         generatedScript?.hook ||
         savedIdea;
 
-      const videoBrief = buildVideoBrief(savedIdea, generatedScript);
-      const videoPrompt = buildVideoPromptForDatabase(videoBrief);
+      const videoPrompt = JSON.stringify(productionPackage);
 
       setRenderState("Generating video");
 
-      const videoResponse = await fetch("/api/video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief: videoBrief }),
-      });
-
-      const videoData = await videoResponse.json();
+      const videoData = await generatePackageVideo(productionPackage);
       const generatedVideoUrl = String(videoData.videoUrl || "").trim();
 
-      if (!videoResponse.ok || !generatedVideoUrl) {
+      if (!generatedVideoUrl) {
         setPublishStatus("Video generation failed. Please try again.");
         throw new Error("Runway did not return a valid videoUrl.");
       }
@@ -789,7 +776,8 @@ function StudioPageContent() {
       });
 
       window.history.replaceState({}, "", `/studio?projectId=${nextProjectId}`);
-    } catch {
+    } catch (error) {
+      setPublishStatus(error instanceof Error ? error.message : "Generation failed.");
       setRenderState("Completed");
     } finally {
       setLoading(false);
@@ -1575,23 +1563,4 @@ function getCaptionLine(text: string) {
   }
 
   return `${words.slice(0, 7).join(" ")}...`;
-}
-
-function buildVideoBrief(idea: string, script: GeneratedScript | null): VideoBrief {
-  const firstScene = script?.scenes?.[0];
-
-  return {
-    idea: idea.trim(),
-    autoStyle: script?.autoStyle || "Auto",
-    visualStyle:
-      script?.visualStyle ||
-      "coherent short-form AI video style inferred from the idea",
-    mainSubject: script?.mainSubject || idea,
-    environment: script?.environment || "a setting that matches the idea",
-    sceneVisual: script?.runwayPrompt || firstScene?.visual || idea,
-  };
-}
-
-function buildVideoPromptForDatabase(brief: VideoBrief) {
-  return JSON.stringify(brief);
 }

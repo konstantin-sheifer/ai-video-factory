@@ -6,15 +6,14 @@ export type RunwayPromptPackage = {
   duration: number;
 };
 
-const TARGET_MAX_CHARS = 1800;
-
 export function buildRunwayPromptPackage(
-  input: ProviderPromptPackage
+  input: ProviderPromptPackage,
+  duration: number
 ): RunwayPromptPackage {
   return {
     promptText: optimizeForRunway(input),
     negativePrompt: input.negativePrompt,
-    duration: 10,
+    duration,
   };
 }
 
@@ -61,7 +60,9 @@ function optimizeForRunway(input: ProviderPromptPackage) {
     .filter(Boolean)
     .join("\n\n");
 
-  return hardLimit(prompt, TARGET_MAX_CHARS);
+  // Preserve the complete adapter output. The server capability gate rejects
+  // over-budget prompts instead of silently discarding the approved story.
+  return prompt.trim();
 }
 
 function extractCompactBeats(text: string) {
@@ -137,19 +138,6 @@ function getLineValue(block: string, label: string) {
     .find((item) => item.toLowerCase().startsWith(label.toLowerCase()));
 
   return line ? line.replace(label, "").trim() : "";
-}
-
-function hardLimit(text: string, maxChars: number) {
-  const clean = text
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]+/g, " ")
-    .trim();
-
-  if (clean.length <= maxChars) {
-    return clean;
-  }
-
-  return `${clean.slice(0, maxChars - 120).trim()}\n\nFinal seconds must clearly show the payoff. Keep same subject, same location, same style.`;
 }
 
 function includesAny(text: string, values: string[]) {

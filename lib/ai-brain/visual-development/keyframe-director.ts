@@ -1,4 +1,4 @@
-import type { Storyboard } from "./storyboard-director";
+import type { Storyboard, StoryboardFrame } from "./storyboard-director";
 
 export type VisualContract = {
   lockedCharacter: boolean;
@@ -10,7 +10,7 @@ export type VisualContract = {
   forbiddenObjects: string[];
 };
 
-export type KeyFrame = {
+export type KeyFrame = StoryboardFrame & {
   id: string;
   sourceFrameId: string;
   title: string;
@@ -21,6 +21,7 @@ export type KeyFrame = {
 
 export type KeyFramePackage = {
   storyboardId: string;
+  duration: number;
   keyFrames: KeyFrame[];
 };
 
@@ -29,7 +30,9 @@ export function createKeyFrames(
 ): KeyFramePackage {
   return {
     storyboardId: storyboard.productionBibleId,
+    duration: storyboard.duration,
     keyFrames: storyboard.frames.map((frame, index) => ({
+      ...frame,
       id: `keyframe-${index + 1}`,
       sourceFrameId: frame.id,
       title: frame.type,

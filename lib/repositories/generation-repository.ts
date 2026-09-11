@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Generation, Prisma } from "@prisma/client";
+import { PACKAGE_ARCHITECTURE } from "@/lib/production/contract";
 import { prisma } from "@/lib/prisma";
 
 export class GenerationRepository {
@@ -41,7 +42,7 @@ export class GenerationRepository {
     data: Prisma.GenerationUpdateManyMutationInput
   ): Promise<Generation | null> {
     const result = await this.database.generation.updateMany({
-      where: { id, userId, version: expectedVersion },
+      where: { id, userId, version: expectedVersion, architectureVersion: { not: PACKAGE_ARCHITECTURE } },
       data: {
         ...data,
         version: { increment: 1 },

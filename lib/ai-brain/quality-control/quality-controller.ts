@@ -60,7 +60,7 @@ export function reviewProductionPackage(input: {
   ];
 
   const overallScore = Math.round(
-    scores.reduce((sum, item) => sum + item.score, 0) / scores.length
+    (scores.reduce((sum, item) => sum + item.score, 0) / scores.length) * 10
   );
 
   const weaknesses = scores
@@ -79,7 +79,7 @@ export function reviewProductionPackage(input: {
   const canGenerate = grade !== "NEEDS_REVISION";
 
   return {
-    approved: grade === "PRODUCTION_READY",
+    approved: canGenerate,
     canGenerate,
     overallScore,
     grade,
@@ -95,7 +95,9 @@ function getQualityGrade(
   overallScore: number,
   criticalIssueCount: number
 ): QualityGrade {
-  if (overallScore >= 90 && criticalIssueCount === 0) {
+  if (!Number.isFinite(overallScore) || criticalIssueCount > 0) return "NEEDS_REVISION";
+
+  if (overallScore >= 90) {
     return "PRODUCTION_READY";
   }
 

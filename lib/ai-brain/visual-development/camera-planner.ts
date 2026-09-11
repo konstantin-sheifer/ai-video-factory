@@ -48,17 +48,31 @@ type SourceFrame = {
 };
 
 export function createCameraPlan(keyframes: KeyFramePackage): CameraPlan {
-  const source = keyframes as unknown as Record<string, unknown>;
-  const frames = getSourceFrames(source);
-  const duration = getDuration(source, frames);
+  if (!Array.isArray(keyframes.keyFrames) || !keyframes.keyFrames.length ||
+      !Number.isFinite(keyframes.duration) || keyframes.duration <= 0) {
+    throw new Error("Invalid keyframe package.");
+  }
+  const frames = keyframes.keyFrames;
+  const duration = keyframes.duration;
+  let cursor = 0;
+  for (const frame of frames) {
+    if (!frame.sourceFrameId || !frame.type || !frame.visualDescription ||
+        !frame.cameraDirection || !frame.composition ||
+        !frame.timeRange || frame.timeRange.startSecond !== cursor ||
+        !Number.isFinite(frame.timeRange.endSecond) ||
+        frame.timeRange.endSecond <= cursor) {
+      throw new Error("Invalid keyframe timing or source contract.");
+    }
+    cursor = frame.timeRange.endSecond;
+  }
+  if (cursor !== duration) throw new Error("Keyframe duration mismatch.");
 
   const shots = frames.map((frame, index) =>
-    createShotFromFrame(frame, index, frames.length, duration)
+    createShotFromFrame(frame, index, frames.length)
   );
 
   return {
-    keyFramePackageId: getString(source.id),
-    storyboardId: getString(source.storyboardId),
+    storyboardId: keyframes.storyboardId,
     duration,
     shots,
     globalCameraRules: [
@@ -77,11 +91,11 @@ export function createCameraPlan(keyframes: KeyFramePackage): CameraPlan {
 function createShotFromFrame(
   frame: SourceFrame,
   index: number,
-  total: number,
-  duration: number
+  total: number
 ): CameraShot {
   const type = getShotType(frame, index, total);
-  const timeRange = frame.timeRange || createFallbackRange(index, total, duration);
+  if (!frame.timeRange) throw new Error("Camera shot requires keyframe timing.");
+  const timeRange = frame.timeRange;
 
   return {
     id: `camera-shot-${index + 1}-${type.toLowerCase()}`,
@@ -221,77 +235,6 @@ function getPurpose(type: CameraShotType, frame: SourceFrame) {
   return [purpose[type], framePurpose, frameVisual]
     .filter(Boolean)
     .join(" ");
-}
-
-function getSourceFrames(source: Record<string, unknown>): SourceFrame[] {
-  const directFrames = source.frames;
-
-  if (Array.isArray(directFrames)) {
-    return directFrames as SourceFrame[];
-  }
-
-  const keyframes = source.keyframes;
-
-  if (Array.isArray(keyframes)) {
-    return keyframes as SourceFrame[];
-  }
-
-  const items = source.items;
-
-  if (Array.isArray(items)) {
-    return items as SourceFrame[];
-  }
-
-  return [
-    {
-      id: "fallback-opening",
-      type: "OPENING_HOOK",
-      timeRange: { startSecond: 0, endSecond: 2 },
-      visualDescription:
-        "Opening hook with subject, location, and key object visible.",
-    },
-    {
-      id: "fallback-action",
-      type: "ACTION_TEST",
-      timeRange: { startSecond: 2, endSecond: 7 },
-      visualDescription:
-        "The subject performs one physical action that reveals the story.",
-    },
-    {
-      id: "fallback-payoff",
-      type: "PAYOFF",
-      timeRange: { startSecond: 7, endSecond: 10 },
-      visualDescription:
-        "Final visual proof appears clearly in the same location.",
-    },
-  ];
-}
-
-function getDuration(source: Record<string, unknown>, frames: SourceFrame[]) {
-  const duration = source.duration;
-
-  if (typeof duration === "number" && Number.isFinite(duration)) {
-    return duration;
-  }
-
-  const lastFrame = frames[frames.length - 1];
-  const endSecond = lastFrame?.timeRange?.endSecond;
-
-  if (typeof endSecond === "number" && Number.isFinite(endSecond)) {
-    return endSecond;
-  }
-
-  return 10;
-}
-
-function createFallbackRange(index: number, total: number, duration: number) {
-  const startSecond = Math.round((duration / total) * index);
-  const endSecond =
-    index === total - 1
-      ? duration
-      : Math.round((duration / total) * (index + 1));
-
-  return { startSecond, endSecond };
 }
 
 function getString(value: unknown) {
