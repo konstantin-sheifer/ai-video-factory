@@ -4,9 +4,10 @@
 **Canonical purpose:** single continuity package for all future ChatGPT/Codex work on AI Video Factory.  
 **Status:** finalized from repository truth audit dated 2026-10-04.  
 **Repository truth audit:** completed read-only on 2026-10-04.  
+**Last repository checkpoint verification:** 2026-11-09.
 **Current verified branch:** `main`  
-**Current verified HEAD:** `cb485bb293496916e8902dc6483bc82f3864074d`  
-**Current verified commit message:** `fix(queue): restore durable retry execution`
+**Current verified HEAD:** `ca7bfe3cbf43e35aef78384581c89e9feea1c4d6`
+**Current verified commit message:** `docs: add canonical AI Video Factory master handoff`
 
 ---
 
@@ -92,6 +93,33 @@ Core product principles:
 - explicit quality gates;
 - provider independence;
 - reliable production execution.
+
+## Approved quality reference — future target
+
+The owner-selected reference for cinematic and artistic quality is:
+
+**Zack London / Gossip Goblin — Instagram `@gossipgoblin`**
+
+The product objective is to create original films with a comparable level of cinematic and artistic quality, not to copy specific works, characters, scenes, or style signatures.
+
+This is one aesthetic reference, not the platform's only supported style. AI Video Factory must support materially different artistic directions.
+
+Do not claim that the reference quality level has already been reached or objectively measured. It remains a future quality target that requires calibrated evaluation and human evidence.
+
+## Product goal and operating modes — required future design
+
+The future product goal is:
+
+> **One idea or prompt → one finished original film with a script, consistent characters, animation/movement, sound, and editing.**
+
+Two product modes are required:
+
+- **Auto Studio** — maximum automation within approved creative constraints, quality gates, attempt limits, and budget.
+- **Director Studio** — explicit human creative control and approval points for script, characters, references, scenes, sound, editing, and selective regeneration.
+
+These are not two independent generation systems. Both modes must use the same production package, versioned assets, durable lifecycle, provider abstractions, and quality evidence.
+
+Director Studio must not bypass quality gates, ownership rules, idempotency, or cost controls. These modes are accepted future requirements, not implemented capabilities on current `main`.
 
 ---
 
@@ -242,6 +270,51 @@ Therefore:
 > **Quality gate exists conceptually and partially in code, but is not an authoritative execution boundary on current `main`.**
 
 This is a known later architectural/security/product task after the current durable-worker milestone is completed.
+
+## AI Quality Intelligence — mandatory future subsystem
+
+AI Quality Intelligence is a required provider-independent logical subsystem. It is not a claim about current implementation and does not require a separate microservice.
+
+Its required capabilities are:
+
+- **Preflight QA** — validate scripts, prompts, characters, references, continuity, production feasibility, and likely failure conditions before paid generation.
+- **Visual/Video QA** — evaluate actual generated media with `PASS`, `REVIEW`, or `FAIL`, including defect explanations, affected scenes or timecodes, evidence, and confidence.
+- **Repair Loop** — QA proposes targeted repairs; the durable orchestrator authorizes and schedules repair or regeneration of defective scenes, followed by fresh QA, without unnecessarily regenerating approved scenes.
+- **Cinematic QA** — evaluate artistic quality, character and style consistency, cinematography, storytelling, pacing, sound, editing, and whole-film coherence.
+- **Cost and attempt governance** — enforce strict limits on generation attempts and total cost, including the cost of QA itself.
+
+### Responsibility boundaries
+
+- Creative Producer owns creative intent and production-package versions.
+- QA evaluates evidence and proposes repairs, but does not independently control budget or queue execution.
+- The durable orchestrator verifies authorization, ownership, quality gates, and available budget before scheduling work.
+- PostgreSQL remains authoritative for versions, decisions, budgets, attempts, status, and outcomes.
+- BullMQ/Valkey remains delivery transport, not business authority.
+- Provider-specific evaluation and generation behavior remains inside adapters.
+
+### Version and invalidation rules
+
+Every QA result must reference the exact production-package version and exact media-asset versions it evaluated.
+
+Any relevant package or asset change invalidates dependent QA results. A previous `PASS` must never authorize execution of a changed version.
+
+`REVIEW` and evaluator failures must not silently become `PASS`. Artistic quality cannot be represented safely by one universal score: evaluation requires calibrated criteria, human-rating alignment, multiple artistic styles, and false-positive/false-negative monitoring.
+
+### Repair, retry, and budget rules
+
+A technical retry of the same idempotent operation is different from a new paid creative attempt. The durable lifecycle must represent them separately.
+
+Required safeguards include:
+
+- durable idempotency for provider operations;
+- provider-status reconciliation when an outcome is uncertain;
+- atomic budget reservation before paid execution;
+- attempt and cost limits per scene and per project;
+- bounded repair loops with explicit stop conditions;
+- preservation of completed results and a controlled explanation when limits are exhausted or quality stops improving;
+- explicit owner approval before increasing an exhausted budget or attempt allowance.
+
+QA must never create an unbounded provider-spend loop.
 
 ---
 
@@ -607,6 +680,8 @@ However:
 
 This remains the current blocker.
 
+As of the repository checkpoint verification on 2026-11-09, no fresh Render logs proving the repaired end-to-end retry path were available. Documentation or unit tests alone do not close this milestone.
+
 ---
 
 # 18. Temporary Neon outage — resolved operationally
@@ -694,13 +769,21 @@ That is why leases, heartbeat, retry, recovery, deterministic IDs, idempotency, 
 
 ---
 
-# 21. Next milestone after 2.2D-C
+# 21. Required roadmap sequence after 2.2D-C
 
-After real durable retry verification closes:
+Unless newer verifiable runtime evidence proves that an earlier gate has closed, the required sequence is:
+
+1. **Milestone 2.2D-C — Real Render Durable Retry Verification** remains the only active engineering priority.
+2. **Durable user pipeline activation** follows, using mock execution first and a protected end-to-end staging journey.
+3. **Production package and Preflight QA enforcement** follows, including ownership/versioning, idempotency, and cost controls before autonomous paid generation or repair.
+4. **Visual/Video QA and a bounded Repair Loop** follow on durable, versioned media assets.
+5. **Cross-scene and final Cinematic QA** expand as multi-scene films mature; Auto Studio and Director Studio are introduced incrementally on the same pipeline.
+
+The production-package branch is not merged into `main`. No milestone may be marked complete from documentation or unit tests alone when its acceptance criteria require live Render evidence.
 
 ## Backend Architecture v2 — user pipeline activation
 
-Transition from:
+After real durable retry verification closes, transition from:
 
 ```text
 HTTP/browser → long generation chain
@@ -719,6 +802,8 @@ HTTP command
 ```
 
 This is the point where the durable worker stops being only infrastructure foundation and becomes the real execution backbone.
+
+Activation must begin with mock/no-cost handlers and preserve authentication, ownership, provider-neutral contracts, explicit mock/live provenance, and the protected user journey before any autonomous paid provider execution is enabled.
 
 ---
 
@@ -740,7 +825,7 @@ Do not endlessly improve architecture for its own sake.
 
 # 23. UI / visual polish phase
 
-After durable execution backbone is proven and activated:
+After durable execution backbone and the protected end-to-end staging journey are proven, UI polish may proceed without displacing the mandatory production-package and QA gates:
 
 - return to reference/benchmark screenshots;
 - refine Landing;
@@ -959,9 +1044,10 @@ Facts:
 - some claim queue/deployment/test infrastructure does not exist;
 - this is now false;
 - `AGENTS.md` is modified and currently claims test scripts are absent even though package scripts now contain queue/health/staging suites;
-- only `docs/implementation/` is tracked documentation.
+- before the canonical handoff commit, only `docs/implementation/` was tracked documentation;
+- this Master Handoff is now also tracked at `docs/AI_VIDEO_FACTORY_MASTER_HANDOFF.md`.
 
-This Master Handoff should become the canonical continuity document.
+This Master Handoff is the canonical continuity document.
 
 Stale root docs should not be used as authoritative implementation evidence.
 
@@ -1042,7 +1128,9 @@ Do not perform UI redesign yet.
 
 Next action:
 
-> **Complete one fresh real Render verification run on current `main` / `cb485bb` using a new unique `QUEUE_VERIFICATION_RUN_ID`.**
+> **Complete one fresh real Render verification run on the current verified `main`, containing retry fix `cb485bb293496916e8902dc6483bc82f3864074d`, using a new unique `QUEUE_VERIFICATION_RUN_ID`. Before starting the run, confirm the actual deployed worker SHA.**
+
+This documentation commit contains the retry-recovery implementation introduced by `cb485bb293496916e8902dc6483bc82f3864074d`. No newer verified Render logs currently prove that path.
 
 Success must prove delayed retry and the remaining recovery/shutdown scenarios.
 
